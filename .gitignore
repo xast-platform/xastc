@@ -1,3 +1,2 @@
-/xast-server/dist-newstyle/
-/xastc/dist-newstyle/
-/xastvm/target/
+/dist-newstyle/
+/.vscode/

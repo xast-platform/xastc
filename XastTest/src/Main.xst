@@ -34,6 +34,10 @@ fn myFunction a b =
    then Leaf b
    else Leaf 0;
 
+fn map(fn(a) -> b, List a) -> List b;
+fn map f [] = [];
+fn map f xs = f (head xs) <> map f (tail xs);
+
 fn test() -> Int;
 fn test = 
     if a != b then
