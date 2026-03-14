@@ -10,8 +10,7 @@ import Text.Megaparsec (between, sepBy1, (<|>), many, some, (<?>), MonadParsec (
 import Xast.Parser.Common
 import Xast.Parser.Ident (typeIdent)
 import Xast.Parser.Type (type')
-import Xast.Parser.Function (pattern')
-import Xast.Parser.Expr (stringLiteral, expr)
+import Xast.Parser.Expr (stringLiteral, expr, pattern')
 import Xast.AST
 
 system :: Parser System

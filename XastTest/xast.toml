@@ -5,6 +5,5 @@ author  = "Koncepto Sociala"
 modules = [
     "Main",
     "Utils.Components",
-    "Utils.Garbage",
     "Utils.Renderer",
 ]

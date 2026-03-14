@@ -1,54 +1,21 @@
-module Main exports { UpdatePlayerPosition }
+module Main exports { computePosition }
 
 use Utils.Components *
 
-system UpdatePlayerPosition #(Player, Pos, Velocity) 
-    -> (Pos, List Effect);
+fn computePosition(Pos, Velocity) -> Pos;
 
--- Is OK
-system EnemyFollowPlayer
-    #(Player, Pos)
-    #(Enemy, Pos, Velocity)
-    -> (Enemy, Velocity);
+fn computePosition (Pos px py) (Velocity vx vy) = 
+    Pos (px + vx) (py + vy);
 
--- Return component is ambiguous
-system InvalidReturn
-    #(Player, Pos)
-    #(Enemy, Pos, Velocity)
-    -> Pos;
+-- fn computePosition pos (Velocity vx vy) =
+--     Pos {
+--         x = pos.x + vx,
+--         y = pos.y + vy
+--     };
 
-system FancySystemECS
-    #(Player, Pos)
-    #(Enemy, Pos)
-    -> ((Enemy, Pos), List Effect)
-        with
-            event: (CustomEvent, OtherEvent),
-            res: PhysicsHandler;
+fn abc(Int) -> Int;
+fn abc a = 
+    let b = 12 and
+    let c = 24 in
 
-system UpdatePlayerPosition #(p pos (Velocity velX velY)) = (pos, Event (p, pos));
-
-fn myFunction(Bool, Int) -> Tree Int;
-fn myFunction _ 0 = Leaf 0;
-fn myFunction a b =
-   if a
-   then Leaf b
-   else Leaf 0;
-
-fn map(fn(a) -> b, List a) -> List b;
-fn map f [] = [];
-fn map f xs = f (head xs) <> map f (tail xs);
-
-fn test() -> Int;
-fn test = 
-    if a != b then
-        12 + 14 * (28 + c)
-    else if !abcDef then
-        0 + 28 ** 2
-    else
-        42;
-
-fn apply1 = M.func a (a b);
-fn apply2 = (M.func a) b;
-
--- XST -> Xast Source Text
--- XBC -> Xast Bytecode
+    a / b ** c;

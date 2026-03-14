@@ -3,6 +3,7 @@ module Xast.SemAnalyzer.Types where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Text (Text)
 
 import Xast.AST
 
@@ -37,38 +38,55 @@ emptyModuleInfo :: ModuleInfo
 emptyModuleInfo = ModuleInfo M.empty S.empty
 
 data SymbolInfo
-   = SymbolType (Located TypeDef)
-   | SymbolFn (Located FuncDef)
-   | SymbolSystem (Located SystemDef)
-   | SymbolExternFn (Located ExternFunc)
-   | SymbolExternType (Located ExternType)
+   = SymbolType Location (S.Set Ident)
+   | SymbolCtor Location Ident
+   | SymbolFn Location FuncSig
+   | SymbolSystem Location SystemSig
+   | SymbolExternFn Location FuncSig
+   | SymbolExternType Location
    deriving (Eq, Show)
 
 symbolLoc :: SymbolInfo -> Location
 symbolLoc = \case
-   SymbolType (Located loc _)       -> loc
-   SymbolFn (Located loc _)         -> loc
-   SymbolSystem (Located loc _)     -> loc
-   SymbolExternFn (Located loc _)   -> loc
-   SymbolExternType (Located loc _) -> loc
+   SymbolType loc _       -> loc
+   SymbolCtor loc _       -> loc
+   SymbolFn loc _         -> loc
+   SymbolSystem loc _     -> loc
+   SymbolExternFn loc _   -> loc
+   SymbolExternType loc   -> loc
 
 data SystemSig = SystemSig
-   { sysArgs :: [Type]
-   , sysRet :: Type
-   , sysWith :: [Type]
+   { sysSigLabel :: Text
+   , sysSigName :: Ident
+   , sysSigEnts :: [QueriedEntity]
+   , sysSigRet :: Type
+   , sysSigWith :: Maybe [WithType]
    }
+   deriving (Eq, Show)
 
 data VarInfo = VarInfo
    { varType :: Type
    , varId :: VarId
    }
+   deriving (Eq, Show)
 
 newtype VarId = VarId Int
+   deriving (Eq, Show)
 
 data FuncSig = FuncSig
    { funcArgs :: [Type]
    , funcRet :: Type
    }
+   deriving (Eq, Show)
 
 funcSig :: FuncDef -> FuncSig
 funcSig (FuncDef _ tys rt) = FuncSig tys rt
+
+externFuncSig :: ExternFunc -> FuncSig
+externFuncSig (ExternFunc _ tys rt) = FuncSig tys rt
+
+systemSig :: SystemDef -> SystemSig
+systemSig (SystemDef label name ents ret withs) =
+   SystemSig label name ents ret withs
+
+data SuggestedImports = SuggestedImports Ident [Module]

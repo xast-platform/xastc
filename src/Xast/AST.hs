@@ -90,7 +90,7 @@ data LetIn = LetIn
    deriving (Eq, Show)
 
 data Let = Let
-   { letIdent :: Ident
+   { letPat :: Pattern
    , letValue :: Located Expr
    }
    deriving (Eq, Show)

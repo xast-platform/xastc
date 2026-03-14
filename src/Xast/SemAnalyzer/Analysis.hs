@@ -4,7 +4,7 @@ module Xast.SemAnalyzer.Analysis where
 import Control.Monad.Except (runExceptT, ExceptT(..))
 import Control.Monad.State
 import Control.Monad (forM_, unless, when, foldM)
-import Data.Maybe (mapMaybe, fromJust)
+import Data.Maybe (mapMaybe, fromJust, isJust)
 import Data.List (sortBy)
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -16,6 +16,15 @@ import Xast.SemAnalyzer.Monad
 import Xast.SemAnalyzer.Types
 import Xast.Error.Pretty (printWarnings)
 import Data.Function ((&))
+import Xast.SemAnalyzer.Query
+   ( lookupCurrentModule
+   , lookupUnqualifiedSymbol
+   , lookupQualifiedSymbol
+   , lookupCurrentConstructor
+   , lookupUnqualifiedConstructor
+   , lookupQualifiedConstructor
+   )
+import Text.Megaparsec (SourcePos(sourceName))
 
 -- #### FULL ANALYSIS ####
 
@@ -27,10 +36,13 @@ fullAnalysis progs = runExceptT $ do
    (st1, warns1) <- ExceptT $ pure $ runPhase env st0 (forM_ progs declareStmts)
    liftIO $ printWarnings warns1
 
-   (_, warns2) <- ExceptT $ pure $ runPhase env st1 (importAnalysis progs)
+   (st2, warns2) <- ExceptT $ pure $ runPhase env st1 (importAnalysis progs)
    liftIO $ printWarnings warns2
 
-   return $ sum $ map length [warns1, warns2]
+   (_, warns3) <- ExceptT $ pure $ runPhase env st2 (forM_ progs resolveNames)
+   liftIO $ printWarnings warns3
+
+   return $ sum $ map length [warns1, warns2, warns3]
 
 -- #### DECLARE STATEMENTS ####
 
@@ -96,19 +108,28 @@ declareSymbol ident sym re = do
             }
 
 declareFn :: Ident -> Located FuncDef -> SemAnalyzer ()
-declareFn ident fd = declareSymbol ident (SymbolFn fd) SEFnRedeclaration
+declareFn ident (Located loc fd) =
+   declareSymbol ident (SymbolFn loc (funcSig fd)) SEFnRedeclaration
 
 declareType :: Ident -> Located TypeDef -> SemAnalyzer ()
-declareType ident td = declareSymbol ident (SymbolType td) SETypeRedeclaration
+declareType ident (Located loc (TypeDef _ _ ctors)) = do
+   let ctorNames = S.fromList [ctorName c | Located _ c <- ctors]
+   declareSymbol ident (SymbolType loc ctorNames) SETypeRedeclaration
+   forM_ ctors $ \(Located ctorLoc ctor) ->
+      unless (ctorName ctor == ident) $
+         declareSymbol (ctorName ctor) (SymbolCtor ctorLoc ident) SECtorRedeclaration
 
 declareExternFn :: Ident -> Located ExternFunc -> SemAnalyzer ()
-declareExternFn ident ef = declareSymbol ident (SymbolExternFn ef) SEExternFnRedeclaration
+declareExternFn ident (Located loc ef) =
+   declareSymbol ident (SymbolExternFn loc (externFuncSig ef)) SEExternFnRedeclaration
 
 declareExternType :: Ident -> Located ExternType -> SemAnalyzer ()
-declareExternType ident et = declareSymbol ident (SymbolExternType et) SEExternTypeRedeclaration
+declareExternType ident (Located loc _) =
+   declareSymbol ident (SymbolExternType loc) SEExternTypeRedeclaration
 
 declareSystem :: Ident -> Located SystemDef -> SemAnalyzer ()
-declareSystem ident sd = declareSymbol ident (SymbolSystem sd) SESystemRedeclaration
+declareSystem ident (Located loc sd) =
+   declareSymbol ident (SymbolSystem loc (systemSig sd)) SESystemRedeclaration
 
 -- #### RESOLVE IMPORTS ####
 
@@ -361,3 +382,91 @@ resolveSelfImport (Program _ (Located from (ModuleDef this _)) imports _) =
    case filter (\(Located _ (ImportDef imported _)) -> imported == this) imports of
       (Located to _):_ -> errSem (SESelfImportError this from to)
       [] -> return ()
+
+-- #### RESOLVE NAMES ####
+resolveNames :: Program -> SemAnalyzer ()
+resolveNames (Program _ (Located _ (ModuleDef m _)) imps stmts) = do
+   modify $ \st -> st { currentModule = m }
+   forM_ stmts $ \case
+      StmtFunc (FnImpl fnImpl) ->
+         let FuncImpl _ args body = lNode fnImpl
+             scope = foldMap collectPatternVars args
+         in resolveExpr scope imps body
+
+      StmtSystem (SysImpl sysImpl) ->
+         let SystemImpl _ entPats mWith body = lNode sysImpl
+             entScope  = foldMap (\(EntityPattern ps) -> foldMap collectPatternVars ps) entPats
+             withScope = maybe S.empty (foldMap collectPatternVars) mWith
+         in resolveExpr (entScope <> withScope) imps body
+
+      _ -> pure ()
+
+collectPatternVars :: Pattern -> S.Set Ident
+collectPatternVars = \case
+   PatVar x    -> S.singleton x
+   PatWildcard -> S.empty
+   PatLit _    -> S.empty
+   PatList ps  -> foldMap collectPatternVars ps
+   PatTuple ps -> foldMap collectPatternVars ps
+   PatCon _ ps -> foldMap collectPatternVars ps
+
+resolveExpr :: S.Set Ident -> [Located ImportDef] -> Located Expr -> SemAnalyzer ()
+resolveExpr scope imps (Located loc expr) = case expr of
+   ExpVar Nothing x -> do
+      modSym <- lookupCurrentModule x
+      impSym <- lookupUnqualifiedSymbol imps x
+      unless (S.member x scope || isJust modSym || isJust impSym) $
+         errSem (SEUndefinedVar loc x)
+
+   ExpVar (Just alias) x ->
+      let hasAlias = \case
+            Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
+            _ -> False
+      in if not $ any hasAlias imps then 
+         errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
+      else do
+         sym <- lookupQualifiedSymbol imps alias x
+         unless (isJust sym) $
+            errSem (SEUndefinedVar loc x)
+
+   ExpCon Nothing x -> do
+      modCon <- lookupCurrentConstructor x
+      impCon <- lookupUnqualifiedConstructor imps x
+      unless (isJust modCon || isJust impCon) $
+         errSem (SEUndefinedCon loc x)
+
+   ExpCon (Just alias) x ->
+      let hasAlias = \case
+            Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
+            _ -> False
+      in if not $ any hasAlias imps then
+         errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
+      else do
+         con <- lookupQualifiedConstructor imps alias x
+         unless (isJust con) $
+            errSem (SEUndefinedCon loc x)
+
+   ExpTuple xs -> forM_ xs (resolveExpr scope imps)
+
+   ExpList xs -> forM_ xs (resolveExpr scope imps)
+
+   ExpLit _ -> pure ()
+
+   ExpLambda (Lambda args body) ->
+      let argScope = S.union scope (S.fromList args)
+      in resolveExpr argScope imps body
+
+   ExpApp lhs rhs -> do
+      resolveExpr scope imps lhs
+      resolveExpr scope imps rhs
+
+   ExpLetIn (LetIn binds body) -> do
+      forM_ binds $ \(Located _ (Let _ value)) ->
+         resolveExpr scope imps value
+      let localScope = foldMap (collectPatternVars . letPat . lNode) binds
+      resolveExpr (S.union scope localScope) imps body
+
+   ExpIfThen (IfThenElse cond tr fl) -> do
+      resolveExpr scope imps cond
+      resolveExpr scope imps tr
+      resolveExpr scope imps fl

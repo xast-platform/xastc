@@ -157,6 +157,47 @@ instance PrintError SemError where
 
       in printReportAt filename report
 
+   printError (SECtorRedeclaration ident oldLoc newLoc) =
+      let Location posOld _ lenOld = oldLoc
+          Location posNew _ lenNew = newLoc
+          filename = sourceName posNew
+          report = errReport
+            ("Constructor redeclared: " <> show (blue (show ident)))
+            [ (toPosition posOld lenOld filename, Where "Previous declaration here")
+            , (toPosition posNew lenNew filename, This "Redeclared here")
+            ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEUndefinedVar loc ident) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Undefined variable: " <> show (blue (show ident)))
+            [ (toPosition pos len filename, This "Not found in local/module/import scope") ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEUndefinedCon loc ident) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Undefined constructor: " <> show (blue (show ident)))
+            [ (toPosition pos len filename, This "Constructor is not in scope") ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEUndefinedAlias filename alias) =
+      let report = errReport
+            ("Undefined module alias: " <> show (blue (show alias)))
+            []
+            [Hint "Add `use Module as Alias` or use an existing alias"]
+      
+      in printReportAt filename report
+
    printError unimplemented = error $ "Unimplemented SA Error: " ++ show unimplemented
 
 printWarnings :: [SemWarning] -> IO ()

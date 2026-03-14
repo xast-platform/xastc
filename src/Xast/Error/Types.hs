@@ -27,8 +27,11 @@ data SemError
    | SEExternFnRedeclaration Ident Location Location
    | SEExternTypeRedeclaration Ident Location Location
    | SESystemRedeclaration Ident Location Location
-   -- 
-   | SEUndefinedVar Ident
+   | SECtorRedeclaration Ident Location Location
+   -- Undefined symbols
+   | SEUndefinedVar Location Ident
+   | SEUndefinedCon Location Ident
+   | SEUndefinedAlias FilePath Ident
    deriving Show
 
 data SemWarning

@@ -12,6 +12,24 @@ import Xast.AST
 import Xast.Parser.Ident (varIdent, typeIdent, inferIdent)
 import Xast.Parser.Common (Parser, lexeme, symbol, located)
 
+pattern' :: Parser Pattern
+pattern' = choice
+   [ tupleOrParensPat
+   , PatWildcard  <$ symbol "_"
+   , PatVar       <$> varIdent
+   , PatCon       <$> typeIdent <*> many pattern'
+   , PatLit       <$> try literal
+   , PatList      <$> between (symbol "[") (symbol "]") (pattern' `sepBy` symbol ",")
+   ]
+
+tupleOrParensPat :: Parser Pattern
+tupleOrParensPat = between (symbol "(") (symbol ")") $ do
+   ts <- pattern' `sepBy` symbol ","
+   case ts of
+      [] -> pure (PatTuple [])
+      [t] -> pure t
+      manyT -> pure (PatTuple manyT)
+
 atomExpr :: Parser (Located Expr)
 atomExpr = located $ choice
    [ tupleOrParens
@@ -77,11 +95,36 @@ opToken op = case op of
    OpPipe    -> "|>"
    OpConcat  -> "<>"
 
-binOp :: BuiltinOp -> Located Expr -> Located Expr -> Located Expr
-binOp op a@(Located (Location posA offA _) _) b@(Located (Location _ offB lenB) _) = 
+opLen :: BuiltinOp -> Int
+opLen op = case op of
+   OpPlus    -> 1
+   OpMinus   -> 1
+   OpNeg     -> 1
+   OpMul     -> 1
+   OpDiv     -> 1
+   OpMod     -> 1
+   OpPow     -> 2
+   OpEq      -> 2
+   OpNeq     -> 2
+   OpAnd     -> 2
+   OpOr      -> 2
+   OpNot     -> 1
+   OpPipe    -> 2
+   OpConcat  -> 2
+
+binOp :: Location -> BuiltinOp -> Located Expr -> Located Expr -> Located Expr
+binOp opLoc op a@(Located (Location posA offA _) _) b@(Located (Location _ offB lenB) _) = 
    -- Span from start of a to end of b
    let totalLen = (offB + lenB) - offA
-   in Located (Location posA offA totalLen) (ExpApp (Located (Location posA offA 0) (ExpApp (Located (Location posA offA 0) (opVar op)) a)) b)
+   in Located 
+         (Location posA offA totalLen) 
+         (ExpApp 
+            (Located opLoc
+            (ExpApp 
+               (Located opLoc (opVar op)) 
+               a
+            )) 
+         b)
 
 table :: [[Operator Parser (Located Expr)]]
 table =
@@ -113,15 +156,19 @@ table =
 
 binary :: BuiltinOp -> Parser (Located Expr -> Located Expr -> Located Expr)
 binary op = do
-  _ <- symbol (opToken op)
-  pure (binOp op)
+    pos <- getSourcePos
+    off <- getOffset
+    _ <- symbol (opToken op)
+    let opLoc = Location pos off (opLen op)
+    pure (binOp opLoc op)
 
 unary :: BuiltinOp -> Parser (Located Expr -> Located Expr)
 unary op = do
-  _ <- symbol (opToken op)
-  pos <- getSourcePos
-  off <- getOffset
-  pure $ \x -> binOp op (Located (Location pos off 0) (ExpLit (LitInt 0))) x
+    pos <- getSourcePos
+    off <- getOffset
+    _ <- symbol (opToken op)
+    let opLoc = Location pos off (opLen op)
+    pure $ \x -> binOp opLoc op (Located opLoc (ExpLit (LitInt 0))) x
 
 expr :: Parser (Located Expr)
 expr = makeExprParser term table
@@ -157,7 +204,7 @@ letIn = do
 let' :: Parser (Located Let)
 let' = located $ do
    _         <- symbol "let"
-   letIdent  <- varIdent <|> inferIdent
+   letPat    <- pattern'
    _         <- symbol "="
    letValue  <- expr
 
