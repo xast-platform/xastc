@@ -45,8 +45,26 @@ data Expr
    | ExpLambda Lambda                     -- .\x y -> x + y
    | ExpApp (Located Expr) (Located Expr) -- Just 12, func a b
    | ExpLetIn LetIn                       -- let a = 1 and let b = 2 in ...
+   | ExpMatch Match                       -- match EXPR of 
    | ExpIfThen IfThenElse                 -- if ... then ... else ...
-   -- | ExpMatch Match                    -- match EXPR of 
+   -- Syntactic sugar (should be de-sugared after typecheck)
+   | ExpRecConstruct RecConstruct         -- Point { x = 12, y = 34 }
+   | ExpVarGetter (Located Expr) Getter   -- var.x, tuple.0
+   deriving (Eq, Show)
+
+data Getter
+   = GetField Ident
+   | GetTupleField Int
+   deriving (Eq, Show)
+
+data RecConstruct = RecConstruct
+   { rcBind :: ModBind
+   , rcCon :: Ident
+   , rcAssigns :: [RecAssign]
+   }
+   deriving (Eq, Show)
+
+data RecAssign = RecAssign (Located Ident) (Located Expr)
    deriving (Eq, Show)
 
 data BuiltinOp 
@@ -68,7 +86,14 @@ data BuiltinOp
    | OpConcat  -- <>
    deriving (Eq, Show)
 
--- data Match = Match deriving (Eq, Show)
+data Match = Match
+   { mtExp :: Located Expr
+   , mtMatches :: [MatchWing]
+   }
+   deriving (Eq, Show)
+
+data MatchWing = MatchWing (Located Pattern) (Located Expr)
+   deriving (Eq, Show)
 
 data IfThenElse = IfThenElse
    { iteIf :: Located Expr

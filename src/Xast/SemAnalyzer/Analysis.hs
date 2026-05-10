@@ -470,3 +470,17 @@ resolveExpr scope imps (Located loc expr) = case expr of
       resolveExpr scope imps cond
       resolveExpr scope imps tr
       resolveExpr scope imps fl
+
+   ExpMatch (Match mtExp mtMatches) -> do
+      resolveExpr scope imps mtExp
+      forM_ mtMatches $ \(MatchWing (Located _ pat) branch) ->
+         let patScope = collectPatternVars pat
+         in resolveExpr (S.union scope patScope) imps branch
+
+   ExpRecConstruct (RecConstruct _ _ rcAssigns) ->
+      forM_ rcAssigns $ \(RecAssign _ value) ->
+         resolveExpr scope imps value
+
+   ExpVarGetter baseExpr _ ->
+      resolveExpr scope imps baseExpr
+

@@ -31,16 +31,24 @@ tupleOrParensPat = between (symbol "(") (symbol ")") $ do
       manyT -> pure (PatTuple manyT)
 
 atomExpr :: Parser (Located Expr)
-atomExpr = located $ choice
-   [ tupleOrParens
-   , ExpVar    <$> (optional . try $ typeIdent <* ".") <*> varIdent
-   , ExpCon    <$> (optional . try $ typeIdent <* ".") <*> typeIdent
-   , ExpList   <$> between (symbol "[") (symbol "]") (expr `sepBy` symbol ",")
-   , ExpLit    <$> literal
-   , ExpLambda <$> lambda
-   , ExpLetIn  <$> letIn
-   , ExpIfThen <$> ifThenElse
-   ]
+atomExpr = do
+   base <- located $ choice
+      [ tupleOrParens
+      , ExpVar    <$> (optional . try $ typeIdent <* ".") <*> varIdent
+      , ExpRecConstruct <$> try recConstruct
+      , ExpCon    <$> (optional . try $ typeIdent <* ".") <*> typeIdent
+      , ExpList   <$> between (symbol "[") (symbol "]") (expr `sepBy` symbol ",")
+      , ExpLit    <$> literal
+      , ExpLambda <$> lambda
+      , ExpLetIn  <$> letIn
+      , ExpIfThen <$> ifThenElse
+      , ExpMatch  <$> match'
+      ]
+   getters <- many (located (symbol "." *> varGetter))
+   pure $ foldl applyGetter base getters
+   where
+      applyGetter l@(Located (Location posL offL _) _) (Located (Location _ offR lenR) getter) =
+         Located (Location posL offL ((offR + lenR) - offL)) (ExpVarGetter l getter)
 
 tupleOrParens :: Parser Expr
 tupleOrParens = between (symbol "(") (symbol ")") $ do
@@ -49,6 +57,38 @@ tupleOrParens = between (symbol "(") (symbol ")") $ do
       [] -> pure (ExpTuple [])
       [Located _ t] -> pure t
       manyT -> pure (ExpTuple manyT)
+
+recConstruct :: Parser RecConstruct
+recConstruct = do
+   rcBind    <- optional . try $ typeIdent <* "."
+   rcCon     <- typeIdent
+   rcAssigns <- between 
+      (symbol "{") 
+      (symbol "}") 
+      (recAssign `sepBy1` symbol ",")
+
+   return RecConstruct {..}
+
+recAssign :: Parser RecAssign
+recAssign = RecAssign <$> located varIdent <* symbol "=" <*> expr
+
+varGetter :: Parser Getter
+varGetter = choice
+   [ GetTupleField <$> intLiteral
+   , GetField      <$> varIdent
+   ]
+
+match' :: Parser Match
+match' = do 
+   _         <- symbol "match"
+   mtExp     <- expr
+   _         <- symbol "with"
+   mtMatches <- matchWing `sepBy1` symbol ","
+
+   return Match {..}
+
+matchWing :: Parser MatchWing
+matchWing = MatchWing <$> located pattern' <* symbol "->" <*> expr
 
 term :: Parser (Located Expr)
 term = do
