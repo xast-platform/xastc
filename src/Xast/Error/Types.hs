@@ -32,6 +32,9 @@ data SemError
    | SEUndefinedVar Location Ident
    | SEUndefinedCon Location Ident
    | SEUndefinedAlias FilePath Ident
+   -- Type checking
+   | SETypeError Location Type Type
+   | SEListElementTypeMismatch Location Type Location Type
    deriving Show
 
 data SemWarning

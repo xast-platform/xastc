@@ -125,8 +125,8 @@ data Literal
    | LitChar Char
    | LitInt Int
    | LitFloat Float
-   | LitList [Literal]
-   | LitTuple [Literal]
+   | LitList [Located Literal]
+   | LitTuple [Located Literal]
    deriving (Eq, Show)
 
 data Extern = ExtFunc (Located ExternFunc) | ExtType (Located ExternType)

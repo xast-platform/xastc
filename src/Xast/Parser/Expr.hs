@@ -257,15 +257,15 @@ literal = choice
    , LitChar   <$> charLiteral
    , LitFloat  <$> try floatLiteral
    , LitInt    <$> intLiteral
-   , LitList   <$> between (symbol "[") (symbol "]") (literal `sepBy` symbol ",")
+   , LitList   <$> between (symbol "[") (symbol "]") (located literal `sepBy` symbol ",")
    ]
 
 tupleOrParensLit :: Parser Literal
 tupleOrParensLit = between (symbol "(") (symbol ")") $ do
-   ts <- literal `sepBy` symbol ","
+   ts <- located literal `sepBy` symbol ","
    case ts of
       [] -> pure (LitTuple [])
-      [t] -> pure t
+      [t] -> pure (lNode t)
       manyT -> pure (LitTuple manyT)
 
 floatLiteral :: Parser Float

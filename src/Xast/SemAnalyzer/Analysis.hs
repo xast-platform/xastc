@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Xast.SemAnalyzer.Analysis where
 
 import Control.Monad.Except (runExceptT, ExceptT(..))
@@ -166,14 +167,14 @@ resolveAmbiguity (Program _ _ imps _) = do
          | Located loc (ImportDef _ (ImpAlias (Located _ a))) <- imps
          ]
    let aliasMap = M.fromListWith (++) [ (a, [loc]) | (a, loc) <- aliasPairs ]
-   
+
    forM_ (M.toList aliasMap) $ \(a, locs) ->
       let sorted = sortBy sortLocByPos locs
       in case sorted of
-         _l1:_l2:_ -> 
-            forM_ (pairs sorted) $ 
+         _l1:_l2:_ ->
+            forM_ (pairs sorted) $
                \(loc1, loc2) -> errSem (SEAmbiguousAlias a loc1 loc2)
-         _ -> 
+         _ ->
             pure ()
 
    let addMany m ident loc = M.insertWith S.union ident (S.singleton loc) m
@@ -203,10 +204,10 @@ resolveAmbiguity (Program _ _ imps _) = do
    forM_ (M.toList imported) $ \(ident, locs) ->
       let sorted = sortBy sortLocByPos (S.toList locs)
       in case sorted of
-         _l1:_l2:_ -> 
-            forM_ (pairs sorted) $ 
+         _l1:_l2:_ ->
+            forM_ (pairs sorted) $
                \(loc1, loc2) -> errSem (SEAmbiguousImport ident loc1 loc2)
-         _ -> 
+         _ ->
             pure ()
 
 resolveImportDeclConflicts :: Program -> SemAnalyzer ()
@@ -260,24 +261,24 @@ resolveMissing progs = do
                   exports <- getModuleExports m
 
                   let nodes = map lNode ids
-                  let missing = 
-                        [ x 
+                  let missing =
+                        [ x
                         | x <- nodes
                         , x `M.notMember` moduleData
                         ]
-                  let private = 
-                        [ y 
+                  let private =
+                        [ y
                         | y <- nodes
                         , y `M.member` moduleData
                         , y `S.notMember` exports
                         ]
 
-                  unless (null missing) $ 
+                  unless (null missing) $
                      errSem (SEMissingImports m loc missing)
 
                   unless (null private) $
                      errSem (SEPrivateImports m loc private)
-               _ -> 
+               _ ->
                   pure ()
          else
             errSem (SEMissingModule m loc)
@@ -422,7 +423,7 @@ resolveExpr scope imps (Located loc expr) = case expr of
       let hasAlias = \case
             Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
             _ -> False
-      in if not $ any hasAlias imps then 
+      in if not $ any hasAlias imps then
          errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
       else do
          sym <- lookupQualifiedSymbol imps alias x
@@ -484,3 +485,46 @@ resolveExpr scope imps (Located loc expr) = case expr of
    ExpVarGetter baseExpr _ ->
       resolveExpr scope imps baseExpr
 
+-- #### Type checking ####
+
+data TypeError = TypeError
+
+-- | **Located Expr**: checked expression
+-- | **Type**: expected type (usually from function/system signature)
+typeCheck :: Located Expr -> Type -> SemAnalyzer ()
+typeCheck (Located loc expr) expected = case expr of
+   ExpLit lit -> do
+      currentType <- literalType lit
+      compareTypes loc expected currentType
+
+
+   _ -> undefined
+-- inferType :: 
+
+compareTypes :: Location ->  Type -> Type -> SemAnalyzer ()
+compareTypes loc expected current = do
+   unless (current == expected) $
+      errSem $ SETypeError loc expected current
+
+literalType :: Literal -> SemAnalyzer Type
+literalType (LitString _) = pure $ TyCon (Ident "String")
+literalType (LitChar _) = pure $ TyCon (Ident "Char")
+literalType (LitInt _) = pure $ TyCon (Ident "Int")
+literalType (LitFloat _) = pure $ TyCon (Ident "Float")
+literalType (LitList (x:xs)) = do
+   -- Check inner list types
+   checkLitListType x xs
+   -- Type of list is defined as `List a`, 
+   -- where a is a type of the first element
+   return $ TyApp (TyCon (Ident "List")) firstElemType
+literalType _ = undefined
+
+checkLitListType :: Located Literal -> [Located Literal] -> SemAnalyzer ()
+checkLitListType (Located firstLoc firstElem) others =
+   forM_ others $ \(Located otherLoc otherElem) -> do
+      firstType <- literalType firstElem
+      otherType <- literalType otherElem
+      unless (firstType == otherType) $
+         errSem $ SEListElementTypeMismatch 
+            firstLoc firstType 
+            otherLoc otherType
