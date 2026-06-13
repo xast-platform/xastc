@@ -2,6 +2,16 @@ module Main exports { computePosition }
 
 use Utils.Components *
 
+fn opAdd(Int, Int) -> Int;
+fn opDiv(Int, Int) -> Int;
+fn opPow(Int, Int) -> Int;
+
+fn testImport () -> Int;
+fn testImport = 
+    let x = 12 and
+    let y = 32
+    in z;
+
 fn computePosition(Pos, Velocity) -> Pos;
 
 fn computePosition (Pos px py) (Velocity vx vy) = 

@@ -1,5 +1,6 @@
 module Xast.AST where
 
+import Data.List (intercalate)
 import GHC.Generics (Generic)
 import Data.Text (Text, unpack)
 import Text.Megaparsec (SourcePos)
@@ -80,7 +81,7 @@ data BuiltinOp
    | OpEq      -- ==
    | OpNeq     -- !=
    | OpAnd     -- &&
-   | OpOr      -- ||   
+   | OpOr      -- ||
    | OpNot     -- !
    | OpPipe    -- |>
    | OpConcat  -- <>
@@ -318,4 +319,30 @@ data Type
    | TyApp Type Type    -- Maybe a, Either a Int...
    | TyTuple [Type]     -- (Bool, a, Maybe String)
    | TyFn [Type] Type   -- fn(Type1, Type2 ... TypeN) -> TypeRet
+   | TyInvalid          -- <invalid>
    deriving (Eq, Show)
+
+typename :: Type -> String
+typename (TyGnr ident) = show ident
+typename (TyCon ident) = show ident
+typename (TyTuple xs) = "(" ++ intercalate ", " (map typename xs) ++ ")"
+typename (TyFn args ret) = "fn(" ++ intercalate ", " (map typename args) ++ ") -> " ++ typename ret 
+typename (TyApp applicant operand) = 
+   let applicantType = typename applicant
+       operandType = typename operand
+       applicantPretty = 
+         if isTyApp applicant then
+            "(" ++ applicantType ++ ")"
+         else 
+            applicantType
+       operandPretty = 
+         if isTyApp operand then
+            "(" ++ operandType ++ ")"
+         else 
+            operandType
+   in applicantPretty ++ " " ++ operandPretty
+typename TyInvalid = "invalid"
+
+isTyApp :: Type -> Bool
+isTyApp (TyApp _ _) = True
+isTyApp _ = False

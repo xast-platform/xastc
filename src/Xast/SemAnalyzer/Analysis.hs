@@ -23,7 +23,7 @@ import Xast.SemAnalyzer.Query
    , lookupQualifiedSymbol
    , lookupCurrentConstructor
    , lookupUnqualifiedConstructor
-   , lookupQualifiedConstructor
+   , lookupQualifiedConstructor, lookupInModule, lookupLocal
    )
 import Text.Megaparsec (SourcePos(sourceName))
 
@@ -113,9 +113,9 @@ declareFn ident (Located loc fd) =
    declareSymbol ident (SymbolFn loc (funcSig fd)) SEFnRedeclaration
 
 declareType :: Ident -> Located TypeDef -> SemAnalyzer ()
-declareType ident (Located loc (TypeDef _ _ ctors)) = do
+declareType ident (Located loc (TypeDef _ generics ctors)) = do
    let ctorNames = S.fromList [ctorName c | Located _ c <- ctors]
-   declareSymbol ident (SymbolType loc ctorNames) SETypeRedeclaration
+   declareSymbol ident (SymbolType loc ctorNames generics) SETypeRedeclaration
    forM_ ctors $ \(Located ctorLoc ctor) ->
       unless (ctorName ctor == ident) $
          declareSymbol (ctorName ctor) (SymbolCtor ctorLoc ident) SECtorRedeclaration
@@ -489,35 +489,115 @@ resolveExpr scope imps (Located loc expr) = case expr of
 
 data TypeError = TypeError
 
--- | **Located Expr**: checked expression
--- | **Type**: expected type (usually from function/system signature)
-typeCheck :: Located Expr -> Type -> SemAnalyzer ()
-typeCheck (Located loc expr) expected = case expr of
-   ExpLit lit -> do
-      currentType <- literalType lit
-      compareTypes loc expected currentType
+inferType :: S.Set Ident -> [Located ImportDef] -> Located Expr -> SemAnalyzer Type
+inferType scope imps (Located loc expr) = case expr of
+   ExpLit literal -> literalType literal
 
+   ExpVar Nothing x -> do
+      thisSym <- lookupLocal x
+      modSym <- lookupCurrentModule x
+      impSym <- lookupUnqualifiedSymbol imps x
+      case (modSym, impSym) of
+         (Just sym, _) -> undefined
+         (_, Just sym) -> undefined
+         _ -> undefined
+
+   ExpVar (Just alias) x ->
+      let hasAlias = \case
+            Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
+            _ -> False
+      in if not $ any hasAlias imps then
+         errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
+      else do
+         sym <- lookupQualifiedSymbol imps alias x
+         unless (isJust sym) $
+            errSem (SEUndefinedVar loc x)
+
+   ExpCon Nothing x -> do
+      modCon <- lookupCurrentConstructor x
+      impCon <- lookupUnqualifiedConstructor imps x
+      unless (isJust modCon || isJust impCon) $
+         errSem (SEUndefinedCon loc x)
+
+   ExpCon (Just alias) x ->
+      let hasAlias = \case
+            Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
+            _ -> False
+      in if not $ any hasAlias imps then
+         errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
+      else do
+         con <- lookupQualifiedConstructor imps alias x
+         unless (isJust con) $
+            errSem (SEUndefinedCon loc x)
+
+   ExpApp applicant operand -> do
+      applicantType <- inferType applicant
+      operandType <- inferType operand
+      applyTypes applicantType operandType
+
+   ExpTuple xs -> TyTuple <$> mapM inferType xs
+
+   ExpList [] -> pure genericList
+   ExpList (x:xs) -> do
+      -- Check inner list types
+      checkListType x xs
+      -- Type of list is defined as `List a`, 
+      -- where a is a type of the first element
+      firstElemType <- inferType x
+      return $ TyApp (TyCon (Ident "List")) firstElemType
+
+   ExpIfThen (IfThenElse if' then' else') -> do
+      -- Compare `if` type with Bool
+      ifType <- inferType if'
+      compareTypes (lLocation if') ifType boolType
+      -- Compare `then` and `else` types
+      thenType <- inferType then'
+      elseType <- inferType else'
+      compareThenElse (lLocation then') thenType (lLocation else') elseType
+      -- Return type of `then` block
+      return thenType
 
    _ -> undefined
--- inferType :: 
 
-compareTypes :: Location ->  Type -> Type -> SemAnalyzer ()
+applyTypes :: Type -> Type -> SemAnalyzer Type
+applyTypes applicant operand = undefined
+
+compareTypes :: Location -> Type -> Type -> SemAnalyzer ()
 compareTypes loc expected current = do
    unless (current == expected) $
       errSem $ SETypeError loc expected current
+
+compareThenElse :: Location -> Type -> Location -> Type -> SemAnalyzer ()
+compareThenElse thenLoc thenType elseLoc elseType = do
+   unless (thenType == elseType) $
+      errSem $ SEThenElseTypeMismatch 
+         thenLoc thenType 
+         elseLoc elseType
 
 literalType :: Literal -> SemAnalyzer Type
 literalType (LitString _) = pure $ TyCon (Ident "String")
 literalType (LitChar _) = pure $ TyCon (Ident "Char")
 literalType (LitInt _) = pure $ TyCon (Ident "Int")
 literalType (LitFloat _) = pure $ TyCon (Ident "Float")
+literalType (LitTuple xs) = TyTuple <$> mapM (literalType . lNode) xs
+literalType (LitList []) = pure genericList
 literalType (LitList (x:xs)) = do
    -- Check inner list types
    checkLitListType x xs
    -- Type of list is defined as `List a`, 
    -- where a is a type of the first element
+   firstElemType <- literalType (lNode x)
    return $ TyApp (TyCon (Ident "List")) firstElemType
-literalType _ = undefined
+
+checkListType :: Located Expr -> [Located Expr] -> SemAnalyzer ()
+checkListType first others =
+   forM_ others $ \other -> do
+      firstType <- inferType first
+      otherType <- inferType other
+      unless (firstType == otherType) $
+         errSem $ SEListElementTypeMismatch
+            (lLocation first) firstType
+            (lLocation other) otherType
 
 checkLitListType :: Located Literal -> [Located Literal] -> SemAnalyzer ()
 checkLitListType (Located firstLoc firstElem) others =
@@ -525,6 +605,12 @@ checkLitListType (Located firstLoc firstElem) others =
       firstType <- literalType firstElem
       otherType <- literalType otherElem
       unless (firstType == otherType) $
-         errSem $ SEListElementTypeMismatch 
-            firstLoc firstType 
+         errSem $ SEListElementTypeMismatch
+            firstLoc firstType
             otherLoc otherType
+
+genericList :: Type
+genericList = TyApp (TyCon (Ident "List")) (TyGnr (Ident "a"))
+
+boolType :: Type
+boolType = TyCon (Ident "Bool")

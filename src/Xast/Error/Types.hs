@@ -35,6 +35,7 @@ data SemError
    -- Type checking
    | SETypeError Location Type Type
    | SEListElementTypeMismatch Location Type Location Type
+   | SEThenElseTypeMismatch Location Type Location Type
    deriving Show
 
 data SemWarning

@@ -38,7 +38,7 @@ emptyModuleInfo :: ModuleInfo
 emptyModuleInfo = ModuleInfo M.empty S.empty
 
 data SymbolInfo
-   = SymbolType Location (S.Set Ident)
+   = SymbolType Location (S.Set Ident) [Ident]
    | SymbolCtor Location Ident
    | SymbolFn Location FuncSig
    | SymbolSystem Location SystemSig
@@ -48,7 +48,7 @@ data SymbolInfo
 
 symbolLoc :: SymbolInfo -> Location
 symbolLoc = \case
-   SymbolType loc _       -> loc
+   SymbolType loc _ _     -> loc
    SymbolCtor loc _       -> loc
    SymbolFn loc _         -> loc
    SymbolSystem loc _     -> loc

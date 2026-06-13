@@ -66,7 +66,7 @@ lookupCurrentConstructor ident = do
    symbol <- lookupCurrentModule ident
    pure $ case symbol of
       Just s@(SymbolCtor _ _) -> Just s
-      Just s@(SymbolType _ ctors) | S.member ident ctors -> Just s
+      Just s@(SymbolType _ ctors _) | S.member ident ctors -> Just s
       _ -> Nothing
 
 lookupUnqualifiedConstructor :: [Located ImportDef] -> Ident -> SemAnalyzer (Maybe SymbolInfo)
@@ -74,7 +74,7 @@ lookupUnqualifiedConstructor imps ident = do
    symbol <- lookupUnqualifiedSymbol imps ident
    pure $ case symbol of
       Just s@(SymbolCtor _ _) -> Just s
-      Just s@(SymbolType _ ctors) | S.member ident ctors -> Just s
+      Just s@(SymbolType _ ctors _) | S.member ident ctors -> Just s
       _ -> Nothing
 
 lookupQualifiedConstructor :: [Located ImportDef] -> Ident -> Ident -> SemAnalyzer (Maybe SymbolInfo)
@@ -82,7 +82,7 @@ lookupQualifiedConstructor imps alias ident = do
    symbol <- lookupQualifiedSymbol imps alias ident
    pure $ case symbol of
       Just s@(SymbolCtor _ _) -> Just s
-      Just s@(SymbolType _ ctors) | S.member ident ctors -> Just s
+      Just s@(SymbolType _ ctors _) | S.member ident ctors -> Just s
       _ -> Nothing
 
 lookupCurrentFunction :: Ident -> SemAnalyzer (Maybe FuncSig)
