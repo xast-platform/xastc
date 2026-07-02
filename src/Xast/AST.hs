@@ -319,6 +319,7 @@ data Type
    | TyApp Type Type    -- Maybe a, Either a Int...
    | TyTuple [Type]     -- (Bool, a, Maybe String)
    | TyFn [Type] Type   -- fn(Type1, Type2 ... TypeN) -> TypeRet
+   | TyVar Int
    | TyInvalid          -- <invalid>
    deriving (Eq, Show)
 
@@ -341,7 +342,9 @@ typename (TyApp applicant operand) =
          else 
             operandType
    in applicantPretty ++ " " ++ operandPretty
-typename TyInvalid = "invalid"
+typename (TyVar n) = "t" ++ show n
+typename TyInvalid = "<invalid>"
+
 
 isTyApp :: Type -> Bool
 isTyApp (TyApp _ _) = True

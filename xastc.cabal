@@ -38,6 +38,7 @@ library
 
         Xast.Utils.List,
         Xast.Utils.Pretty,
+        Xast.Utils.Generic,
 
     build-depends:    
         mtl ^>=2.3.1,

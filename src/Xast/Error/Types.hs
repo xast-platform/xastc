@@ -36,6 +36,9 @@ data SemError
    | SETypeError Location Type Type
    | SEListElementTypeMismatch Location Type Location Type
    | SEThenElseTypeMismatch Location Type Location Type
+   | SEInfiniteType Location Int Type
+   | SETooManyArgs Location Type
+   | SENotAFunction Location Type
    deriving Show
 
 data SemWarning

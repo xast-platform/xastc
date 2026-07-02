@@ -19,11 +19,13 @@ emptyEnv = Env M.empty M.empty M.empty
 data SymTable = SymTable
    { modules :: M.Map Module ModuleInfo
    , currentModule :: Module
+   , tyVarSupply :: Int
+   , tySubst :: M.Map Int Type
    }
    deriving (Eq, Show)
 
 emptySymTable :: SymTable
-emptySymTable = SymTable M.empty (Module [])
+emptySymTable = SymTable M.empty (Module []) 0 M.empty
 
 data QualifiedName = QualifiedName Module Ident
    deriving (Eq, Show, Ord)
