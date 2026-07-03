@@ -421,10 +421,16 @@ resolveExpr scope imps (Located loc expr) = case expr of
       unless (S.member x scope || isJust modSym || isJust impSym) $
          errSem (SEUndefinedVar loc x)
 
-   ExpVar (Just alias) x -> do
-      sym <- lookupQualifiedSymbol imps alias x
-      unless (isJust sym) $
-         errSem (SEUndefinedVar loc x)
+   ExpVar (Just alias) x ->
+      let hasAlias = \case
+            Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
+            _ -> False
+      in if not $ any hasAlias imps then
+         errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
+      else do
+         sym <- lookupQualifiedSymbol imps alias x
+         unless (isJust sym) $
+            errSem (SEUndefinedVar loc x)
 
    ExpCon Nothing x -> do
       modCon <- lookupCurrentConstructor x
@@ -483,8 +489,6 @@ resolveExpr scope imps (Located loc expr) = case expr of
 
 -- #### Type checking ####
 
-data TypeError = TypeError
-
 freshTyVar :: SemAnalyzer Type
 freshTyVar = do
    st <- get
@@ -506,14 +510,6 @@ resolve t = do
 bindVar :: Int -> Type -> SemAnalyzer ()
 bindVar n t = modify $ \st -> st { tySubst = M.insert n t (tySubst st) }
 
-occursCheck :: Int -> Type -> SemAnalyzer Bool
-occursCheck n t = do
-   t' <- resolve t
-   pure $ case t' of
-      TyVar m     -> n == m
-      TyApp a b   -> False
-      _           -> False
-
 unify :: Location -> Type -> Type -> SemAnalyzer ()
 unify loc t1 t2 = do
    t1' <- resolve t1
@@ -524,7 +520,7 @@ unify loc t1 t2 = do
       (_, TyVar m) -> bindOrFail loc m t1'
 
       (TyCon a, TyCon b) | a == b -> pure ()
-      (TyGnr a, TyGnr b) | a == b -> pure ()   -- shouldn't normally reach here post-instantiate
+      (TyGnr a, TyGnr b) | a == b -> pure ()
 
       (TyApp a1 b1, TyApp a2 b2) -> unify loc a1 a2 >> unify loc b1 b2
       (TyTuple xs, TyTuple ys) | length xs == length ys ->
@@ -587,18 +583,21 @@ inferType scope imps (Located loc expr) = case expr of
       impSym  <- lookupUnqualifiedSymbol imps x
       case thisSym of
          Just vi -> resolve (varType vi)
-         Nothing -> case (modSym, impSym) of
-            (Just (SymbolFn _ sig), _)       -> instantiate sig
-            (Just (SymbolExternFn _ sig), _) -> instantiate sig
-            (_, Just (SymbolFn _ sig))       -> instantiate sig
-            (_, Just (SymbolExternFn _ sig)) -> instantiate sig
+         Nothing -> case modSym <|> impSym of
+            Just (SymbolFn _ sig)       -> instantiate sig
+            Just (SymbolExternFn _ sig) -> instantiate sig
             _ -> do
                errSem (SEUndefinedVar loc x)
                pure TyInvalid
 
    ExpVar (Just alias) x -> do
       sym <- lookupQualifiedSymbol imps alias x
-      return TyInvalid
+      case sym of
+         Just (SymbolFn _ sig)       -> instantiate sig
+         Just (SymbolExternFn _ sig) -> instantiate sig
+         _ -> do
+            errSem (SEUndefinedVar loc x)
+            pure TyInvalid
 
    ExpCon Nothing x -> do
       modCon <- lookupCurrentConstructor x
@@ -609,20 +608,13 @@ inferType scope imps (Located loc expr) = case expr of
             errSem (SEUndefinedCon loc x)
             pure TyInvalid
 
-   ExpCon (Just alias) x ->
-      let hasAlias = \case
-            Located _ (ImportDef _ (ImpAlias (Located _ a))) -> a == alias
-            _ -> False
-      in if not $ any hasAlias imps then do
-            errSem (SEUndefinedAlias (sourceName (lPos loc)) alias)
+   ExpCon (Just alias) x -> do
+      con <- lookupQualifiedConstructor imps alias x
+      case con of
+         Just sym -> ctorType sym
+         Nothing  -> do
+            errSem (SEUndefinedCon loc x)
             pure TyInvalid
-         else do
-            con <- lookupQualifiedConstructor imps alias x
-            case con of
-               Just sym -> ctorType sym
-               Nothing  -> do
-                  errSem (SEUndefinedCon loc x)
-                  pure TyInvalid
 
    ExpApp applicant operand -> do
       applicantType <- inferType scope imps applicant
@@ -631,7 +623,8 @@ inferType scope imps (Located loc expr) = case expr of
 
    ExpTuple xs -> TyTuple <$> mapM (inferType scope imps) xs
 
-   ExpList [] -> pure genericList
+   ExpList [] -> TyApp (TyCon (Ident "List")) <$> freshTyVar
+
    ExpList (x:xs) -> do
       -- Check inner list types
       checkListType scope imps x xs
@@ -680,15 +673,17 @@ applyTypes loc applicantTy operandTy = do
 
 compareTypes :: Location -> Type -> Type -> SemAnalyzer ()
 compareTypes loc expected current = do
-   unless (current == expected) $
-      errSem $ SETypeError loc expected current
+   expected' <- resolve expected
+   current' <- resolve current
+   unless (current' == expected') $
+      errSem (SETypeError loc expected' current')
 
 compareThenElse :: Location -> Type -> Location -> Type -> SemAnalyzer ()
 compareThenElse thenLoc thenType elseLoc elseType = do
-   unless (thenType == elseType) $
-      errSem $ SEThenElseTypeMismatch
-         thenLoc thenType
-         elseLoc elseType
+   thenType' <- resolve thenType
+   elseType' <- resolve elseType
+   unless (thenType' == elseType') $
+      errSem (SEThenElseTypeMismatch thenLoc thenType' elseLoc elseType')
 
 literalType :: Literal -> SemAnalyzer Type
 literalType (LitString _) = pure $ TyCon (Ident "String")
@@ -711,9 +706,11 @@ checkListType scope imps first others =
       firstType <- inferType scope imps first
       otherType <- inferType scope imps other
       unless (firstType == otherType) $
-         errSem $ SEListElementTypeMismatch
-            (lLocation first) firstType
-            (lLocation other) otherType
+         errSem (
+            SEListElementTypeMismatch
+               (lLocation first) firstType
+               (lLocation other) otherType
+         )
 
 checkLitListType :: Located Literal -> [Located Literal] -> SemAnalyzer ()
 checkLitListType (Located firstLoc firstElem) others =
@@ -721,9 +718,7 @@ checkLitListType (Located firstLoc firstElem) others =
       firstType <- literalType firstElem
       otherType <- literalType otherElem
       unless (firstType == otherType) $
-         errSem $ SEListElementTypeMismatch
-            firstLoc firstType
-            otherLoc otherType
+         errSem (SEListElementTypeMismatch firstLoc firstType otherLoc otherType)
 
 genericList :: Type
 genericList = TyApp (TyCon (Ident "List")) (TyGnr (Ident "a"))
