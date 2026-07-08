@@ -3,11 +3,12 @@ module Xast.Error.Pretty where
 
 import Control.Monad (forM_, unless)
 import Data.List (intercalate)
-import Data.Text (Text, unpack)
+import Data.Text (Text, unpack, pack)
 import Data.Void (Void)
 import Error.Diagnose
 import Error.Diagnose.Compat.Megaparsec (HasHints (hints), errorDiagnosticFromBundle)
 import Text.Megaparsec
+import Toml (prettyTomlDecodeError)
 
 import Xast.Error.Types
 import Xast.AST
@@ -32,6 +33,12 @@ instance PrintError XastError where
 
    printError (XastModuleNotFound module_ dir) = do
       let msg = "Module `" <> show module_ <> "` not found at path: " <> dir <> "/" <> moduleToPath module_
+      let report = Err Nothing msg [] []
+      let diagnostic = addReport mempty report
+      printDiagnostic stdout WithUnicode (TabSize 4) defaultStyle diagnostic
+
+   printError (XastTomlDecodeError file e) = do
+      let msg = pack (show (yellow (file <> ": "))) <> prettyTomlDecodeError e
       let report = Err Nothing msg [] []
       let diagnostic = addReport mempty report
       printDiagnostic stdout WithUnicode (TabSize 4) defaultStyle diagnostic

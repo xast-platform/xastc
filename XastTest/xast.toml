@@ -1,4 +1,4 @@
-[xast]
+[project]
 name    = "XastTest"
 version = "0.1.0"
 author  = "Koncepto Sociala"
@@ -6,4 +6,14 @@ modules = [
     "Main",
     "Utils.Components",
     "Utils.Renderer",
+]
+
+[api]
+labels = [
+    "Setup",
+    "Render",
+    "Update",
+]
+components = [
+    "RandomNumber",
 ]

@@ -28,6 +28,7 @@ import Xast.SemAnalyzer.Query
    )
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
+import Xast.Utils.Generic (todo)
 
 -- #### FULL ANALYSIS ####
 
@@ -645,6 +646,9 @@ inferType scope imps (Located loc expr) = case expr of
       return thenType
 
    _ -> undefined
+
+ctorType :: SymbolInfo -> SemAnalyzer Type
+ctorType = todo "ctorType"
 
 applyTypes :: Location -> Type -> Type -> SemAnalyzer Type
 applyTypes loc applicantTy operandTy = do

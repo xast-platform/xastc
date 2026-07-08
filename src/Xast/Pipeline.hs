@@ -10,13 +10,14 @@ import Data.Bifunctor (Bifunctor(first))
 import Data.Either (partitionEithers)
 import System.Directory (getCurrentDirectory, doesFileExist)
 
-import Xast.Config (parseConfig, XastConfiguration (xcModules))
+import Xast.Config (xastConfigCodec, XastConfig (..), ProjectConfig (projModules))
 import Xast.Error.Types (XastError (..))
 import Xast.Parser.Program (parseProgram)
 import Xast.AST
 import Xast.SemAnalyzer.Analysis (fullAnalysis)
 import Xast.Error.Pretty (PrintError(printError))
 import Xast.Utils.Pretty
+import qualified Toml
 
 runCompile :: Maybe FilePath -> IO ()
 runCompile dir = runCompile_ dir >>= \case
@@ -51,18 +52,21 @@ runCompile_ dir = runExceptT $ do
    unless configFileExists $
       throwError [XastFileNotFound "xast.toml" currentDir]
 
-   configContent <- pack <$> liftIO (readFile configFile)
-   config <- ExceptT $ pure $ first pure $ parseConfig configFile configContent
+   tomlRes <- Toml.decodeFileEither xastConfigCodec configFile
+   config <- case tomlRes of
+      Left errors -> throwError (XastTomlDecodeError configFile <$> errors)
+      Right cfg   -> pure cfg
+
    invalidModules <- liftIO $ filterM 
       (\m -> not <$> doesFileExist (currentDir ++ "/" ++ moduleToPath m)) 
-      (xcModules config)
+      (projModules $ projectConfig config)
 
    case invalidModules of
       (m:_) -> throwError [XastModuleNotFound m currentDir]
       []    -> return ()
 
    -- Parse modules
-   results <- liftIO $ traverse (parseOne currentDir) $ xcModules config
+   results <- liftIO $ traverse (parseOne currentDir) (projModules $ projectConfig config)
    let (errors, programs) = partitionEithers results
    unless (null errors) $ 
       throwError errors

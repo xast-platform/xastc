@@ -5,6 +5,7 @@ import Data.Void (Void)
 import Text.Megaparsec (ParseErrorBundle)
 
 import Xast.AST
+import Toml (TomlDecodeError)
 
 data SemReport
    = SemWarning SemWarning
@@ -49,6 +50,7 @@ data SemWarning
 
 data XastError
    = XastParseError (ParseErrorBundle Text Void)
+   | XastTomlDecodeError FilePath TomlDecodeError
    | XastSemAnalyzeError SemError
    | XastFileNotFound FilePath FilePath
    | XastModuleNotFound Module FilePath
