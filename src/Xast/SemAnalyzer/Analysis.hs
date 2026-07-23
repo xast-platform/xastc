@@ -4,9 +4,10 @@ module Xast.SemAnalyzer.Analysis where
 
 import Control.Monad.Except (runExceptT, ExceptT(..))
 import Control.Monad.State
-import Control.Monad (forM_, unless, when, foldM, zipWithM_)
+import Control.Monad (forM_, unless, when, foldM, zipWithM_, zipWithM, forM)
 import Data.Maybe (mapMaybe, fromJust, isJust)
 import Data.List (sortBy)
+import Data.Foldable (foldl')
 import qualified Data.Set as S
 import qualified Data.Map as M
 
@@ -24,11 +25,11 @@ import Xast.SemAnalyzer.Query
    , lookupCurrentConstructor
    , lookupUnqualifiedConstructor
    , lookupQualifiedConstructor
-   , lookupLocal
+   , lookupLocal, withVars
    )
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
-import Xast.Utils.Generic (todo)
+import Xast.Utils.Generic (unreachableWith)
 
 -- #### FULL ANALYSIS ####
 
@@ -114,14 +115,22 @@ declareSymbol ident sym re = do
 declareFn :: Ident -> Located FuncDef -> SemAnalyzer ()
 declareFn ident (Located loc fd) =
    declareSymbol ident (SymbolFn loc (funcSig fd)) SEFnRedeclaration
-
+   
 declareType :: Ident -> Located TypeDef -> SemAnalyzer ()
 declareType ident (Located loc (TypeDef _ generics ctors)) = do
    let ctorNames = S.fromList [ctorName c | Located _ c <- ctors]
-   declareSymbol ident (SymbolType loc ctorNames generics) SETypeRedeclaration
+   declareSymbol ident (SymbolType loc (TypeSig ctorNames generics)) SETypeRedeclaration
    forM_ ctors $ \(Located ctorLoc ctor) ->
       unless (ctorName ctor == ident) $
-         declareSymbol (ctorName ctor) (SymbolCtor ctorLoc ident) SECtorRedeclaration
+         let fieldTys = payloadTypes (ctorPayload ctor)
+         in declareSymbol (ctorName ctor)
+               (SymbolCtor ctorLoc (CtorSig ident generics fieldTys))
+               SECtorRedeclaration
+   where
+      payloadTypes = \case
+         PUnit -> []
+         (PTuple tys) -> tys
+         (PRecord fs) -> map fldType fs
 
 declareExternFn :: Ident -> Located ExternFunc -> SemAnalyzer ()
 declareExternFn ident (Located loc ef) =
@@ -190,16 +199,16 @@ resolveAmbiguity (Program _ _ imps _) = do
                   Just _ -> do
                      exps <- getModuleExports m
                      let names = [ lNode i | i <- ids, lNode i `S.member` exps ]
-                     pure (foldl (\mp idn -> addMany mp idn loc) acc names)
+                     pure (foldl' (\mp idn -> addMany mp idn loc) acc names)
                   Nothing ->
                      let names = map lNode ids
-                     in pure (foldl (\mp idn -> addMany mp idn loc) acc names)
+                     in pure (foldl' (\mp idn -> addMany mp idn loc) acc names)
             ImpFull ->
                case M.lookup m ms of
                   Just _ -> do
                      exps <- getModuleExports m
                      let names = S.toList exps
-                     pure (foldl (\mp idn -> addMany mp idn loc) acc names)
+                     pure (foldl' (\mp idn -> addMany mp idn loc) acc names)
                   Nothing -> pure acc
       )
       M.empty
@@ -226,16 +235,16 @@ resolveImportDeclConflicts (Program _ (Located _ (ModuleDef m _)) imps _) = do
                   Just _ -> do
                      exps <- getModuleExports module_
                      let names = [ lNode i | i <- ids, lNode i `S.member` exps ]
-                     pure (foldl (\mp idn -> addMany mp idn loc) acc names)
+                     pure (foldl' (\mp idn -> addMany mp idn loc) acc names)
                   Nothing ->
                      let names = map lNode ids
-                     in pure (foldl (\mp idn -> addMany mp idn loc) acc names)
+                     in pure (foldl' (\mp idn -> addMany mp idn loc) acc names)
             ImpFull ->
                case M.lookup module_ ms of
                   Just _ -> do
                      exps <- getModuleExports module_
                      let names = S.toList exps
-                     pure (foldl (\mp idn -> addMany mp idn loc) acc names)
+                     pure (foldl' (\mp idn -> addMany mp idn loc) acc names)
                   Nothing -> pure acc
       )
       M.empty
@@ -495,7 +504,14 @@ freshTyVar = do
    st <- get
    let n = tyVarSupply st
    put st { tyVarSupply = n + 1 }
-   pure (TyVar n)
+   return $ TyVar n
+
+freshVarId :: SemAnalyzer VarId
+freshVarId = do
+   st <- get
+   let n = varIdSupply st
+   put st { varIdSupply = n + 1 }
+   return $ VarId n
 
 resolve :: Type -> SemAnalyzer Type
 resolve t = do
@@ -574,8 +590,8 @@ substGnr m = \case
    TyFn args r   -> TyFn (map (substGnr m) args) (substGnr m r)
    t             -> t
 
-inferType :: S.Set Ident -> [Located ImportDef] -> Located Expr -> SemAnalyzer Type
-inferType scope imps (Located loc expr) = case expr of
+inferType :: [Located ImportDef] -> Located Expr -> SemAnalyzer Type
+inferType imps (Located loc expr) = case expr of
    ExpLit literal -> literalType literal
 
    ExpVar Nothing x -> do
@@ -604,7 +620,7 @@ inferType scope imps (Located loc expr) = case expr of
       modCon <- lookupCurrentConstructor x
       impCon <- lookupUnqualifiedConstructor imps x
       case modCon <|> impCon of
-         Just sym -> ctorType sym
+         Just sym -> ctorType loc sym
          Nothing  -> do
             errSem (SEUndefinedCon loc x)
             pure TyInvalid
@@ -612,43 +628,113 @@ inferType scope imps (Located loc expr) = case expr of
    ExpCon (Just alias) x -> do
       con <- lookupQualifiedConstructor imps alias x
       case con of
-         Just sym -> ctorType sym
+         Just sym -> ctorType loc sym
          Nothing  -> do
             errSem (SEUndefinedCon loc x)
             pure TyInvalid
 
    ExpApp applicant operand -> do
-      applicantType <- inferType scope imps applicant
-      operandType   <- inferType scope imps operand
+      applicantType <- inferType imps applicant
+      operandType   <- inferType imps operand
       applyTypes loc applicantType operandType
 
-   ExpTuple xs -> TyTuple <$> mapM (inferType scope imps) xs
+   ExpTuple xs -> TyTuple <$> mapM (inferType imps) xs
 
    ExpList [] -> TyApp (TyCon (Ident "List")) <$> freshTyVar
 
    ExpList (x:xs) -> do
       -- Check inner list types
-      checkListType scope imps x xs
+      checkListType imps x xs
       -- Type of list is defined as `List a`, 
       -- where a is a type of the first element
-      firstElemType <- inferType scope imps x
+      firstElemType <- inferType imps x
       return $ TyApp (TyCon (Ident "List")) firstElemType
 
    ExpIfThen (IfThenElse if' then' else') -> do
       -- Compare `if` type with Bool
-      ifType <- inferType scope imps if'
+      ifType <- inferType imps if'
       compareTypes (lLocation if') ifType boolType
       -- Compare `then` and `else` types
-      thenType <- inferType scope imps then'
-      elseType <- inferType scope imps else'
+      thenType <- inferType imps then'
+      elseType <- inferType imps else'
       compareThenElse (lLocation then') thenType (lLocation else') elseType
       -- Return type of `then` block
       return thenType
 
-   _ -> undefined
+   ExpLetIn (LetIn binds body) -> inferLetBinds imps binds body
 
-ctorType :: SymbolInfo -> SemAnalyzer Type
-ctorType = todo "ctorType"
+   ExpMatch (Match mtExp mtMatches) -> do
+      caseTy <- inferType imps mtExp
+      branchTys <- forM mtMatches $ \(MatchWing (Located patLoc pat) branch) -> do
+         patVars <- inferPattern imps patLoc caseTy pat
+         withVars patVars (inferType imps branch)
+      case branchTys of
+         [] -> pure TyInvalid
+         (t:rest) -> do
+            forM_ rest (unify loc t)
+            resolve t
+
+inferLetBinds :: [Located ImportDef] -> [Located Let] -> Located Expr -> SemAnalyzer Type
+inferLetBinds imps [] body = inferType imps body
+inferLetBinds imps (Located bindLoc (Let pat value) : rest) body = do
+   valTy   <- inferType imps value
+   patVars <- inferPattern imps bindLoc valTy pat
+   withVars patVars (inferLetBinds imps rest body)
+
+inferPattern :: [Located ImportDef] -> Location -> Type -> Pattern -> SemAnalyzer (M.Map Ident VarInfo)
+inferPattern imps loc ty = \case
+   PatVar x -> M.singleton x . VarInfo ty <$> freshVarId
+
+   PatWildcard -> pure M.empty
+
+   PatLit lit -> do
+      litTy <- literalType lit
+      unify loc ty litTy
+      pure M.empty
+
+   PatList ps -> do
+      elemTv <- freshTyVar
+      unify loc ty (TyApp (TyCon (Ident "List")) elemTv)
+      M.unions <$> mapM (inferPattern imps loc elemTv) ps
+
+   PatTuple ps -> do
+      elemTvs <- mapM (const freshTyVar) ps
+      unify loc ty (TyTuple elemTvs)
+      M.unions <$> zipWithM (inferPattern imps loc) elemTvs ps
+
+   PatCon ctorIdent ps -> do
+      modCtor <- lookupCurrentConstructor ctorIdent
+      impCtor <- lookupUnqualifiedConstructor imps ctorIdent
+      case modCtor <|> impCtor of
+         Nothing -> pure M.empty
+
+         Just sym@(SymbolCtor _ _) -> do
+            resultTy <- ctorType loc sym
+            let (expectedFieldTys, ctorResultTy) = case resultTy of
+                  TyFn args r -> (args, r)
+                  r           -> ([], r)
+
+            unify loc ty ctorResultTy
+
+            if length ps /= length expectedFieldTys
+               then do
+                  errSem (SECtorArityMismatch loc ctorIdent (length expectedFieldTys) (length ps))
+                  pure M.empty
+               else
+                  M.unions <$> zipWithM (inferPattern imps loc) expectedFieldTys ps
+
+         Just invalid -> 
+            unreachableWith $ "Invalid constructor symbol at " ++ show loc ++ ": " ++ show invalid
+
+ctorType :: Location -> SymbolInfo -> SemAnalyzer Type
+ctorType _ (SymbolCtor _ (CtorSig ownerIdent generics fieldTys)) = do
+   fresh <- mapM (const freshTyVar) generics
+   let subst    = M.fromList (zip generics fresh)
+       fields'  = map (substGnr subst) fieldTys
+       resultTy = foldl' TyApp (TyCon ownerIdent) fresh
+   pure $ if null fields' then resultTy else TyFn fields' resultTy
+ctorType loc invalid =
+   unreachableWith $ "Invalid constructor symbol at " ++ show loc ++ ": " ++ show invalid
 
 applyTypes :: Location -> Type -> Type -> SemAnalyzer Type
 applyTypes loc applicantTy operandTy = do
@@ -704,11 +790,11 @@ literalType (LitList (x:xs)) = do
    firstElemType <- literalType (lNode x)
    return $ TyApp (TyCon (Ident "List")) firstElemType
 
-checkListType :: S.Set Ident -> [Located ImportDef] -> Located Expr -> [Located Expr] -> SemAnalyzer ()
-checkListType scope imps first others =
+checkListType :: [Located ImportDef] -> Located Expr -> [Located Expr] -> SemAnalyzer ()
+checkListType imps first others =
    forM_ others $ \other -> do
-      firstType <- inferType scope imps first
-      otherType <- inferType scope imps other
+      firstType <- inferType imps first
+      otherType <- inferType imps other
       unless (firstType == otherType) $
          errSem (
             SEListElementTypeMismatch

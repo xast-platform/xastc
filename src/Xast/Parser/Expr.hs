@@ -4,6 +4,7 @@ module Xast.Parser.Expr where
 
 import Control.Monad.Combinators.Expr
 import Data.Text (Text, pack)
+import Data.List (foldl', foldl1')
 import Text.Megaparsec.Char (char)
 import Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -45,7 +46,7 @@ atomExpr = do
       , ExpMatch  <$> match'
       ]
    getters <- many (located (symbol "." *> varGetter))
-   pure $ foldl applyGetter base getters
+   pure $ foldl' applyGetter base getters
    where
       applyGetter l@(Located (Location posL offL _) _) (Located (Location _ offR lenR) getter) =
          Located (Location posL offL ((offR + lenR) - offL)) (ExpVarGetter l getter)
@@ -93,7 +94,7 @@ matchWing = MatchWing <$> located pattern' <* symbol "->" <*> expr
 term :: Parser (Located Expr)
 term = do
    atoms <- some atomExpr
-   pure $ foldl1 app atoms
+   pure $ foldl1' app atoms
    where
       app l@(Located (Location posL offL _) _) r@(Located (Location _ offR lenR) _) =
          Located (Location posL offL ((offR + lenR) - offL)) (ExpApp l r)

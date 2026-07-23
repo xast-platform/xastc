@@ -8,6 +8,7 @@ import Text.Megaparsec (choice, sepBy, between, some, MonadParsec (try), many, s
 import Xast.Parser.Ident
 import Xast.Parser.Common (Parser, symbol, lexeme, endOfStmt, located)
 import Xast.AST
+import Data.List (foldl1')
 
 typeDef :: Parser (Located TypeDef)
 typeDef = located $ do
@@ -44,7 +45,7 @@ field = do
 type' :: Parser Type
 type' = do
    atoms <- some atomType
-   pure (foldl1 TyApp atoms)
+   pure (foldl1' TyApp atoms)
 
 atomType :: Parser Type
 atomType = choice

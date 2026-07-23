@@ -19,13 +19,20 @@ emptyEnv = Env M.empty M.empty M.empty
 data SymTable = SymTable
    { modules :: M.Map Module ModuleInfo
    , currentModule :: Module
+   , varIdSupply :: Int
    , tyVarSupply :: Int
    , tySubst :: M.Map Int Type
    }
    deriving (Eq, Show)
 
 emptySymTable :: SymTable
-emptySymTable = SymTable M.empty (Module []) 0 M.empty
+emptySymTable = SymTable
+   { modules = M.empty 
+   , currentModule = Module []
+   , varIdSupply = 0
+   , tyVarSupply = 0
+   , tySubst = M.empty
+   }
 
 data QualifiedName = QualifiedName Module Ident
    deriving (Eq, Show, Ord)
@@ -40,17 +47,30 @@ emptyModuleInfo :: ModuleInfo
 emptyModuleInfo = ModuleInfo M.empty S.empty
 
 data SymbolInfo
-   = SymbolType Location (S.Set Ident) [Ident]
-   | SymbolCtor Location Ident
+   = SymbolType Location TypeSig
+   | SymbolCtor Location CtorSig
    | SymbolFn Location FuncSig
    | SymbolSystem Location SystemSig
    | SymbolExternFn Location FuncSig
    | SymbolExternType Location
    deriving (Eq, Show)
+   
+data CtorSig = CtorSig
+   { ctorSigOwner :: Ident 
+   , ctorSigGenereics :: [Ident] 
+   , ctorSigFields :: [Type]
+   }
+   deriving (Eq, Show)
+
+data TypeSig = TypeSig
+   { tySigCtors :: S.Set Ident
+   , tySigGenerics :: [Ident]
+   }
+   deriving (Eq, Show)
 
 symbolLoc :: SymbolInfo -> Location
 symbolLoc = \case
-   SymbolType loc _ _     -> loc
+   SymbolType loc _       -> loc
    SymbolCtor loc _       -> loc
    SymbolFn loc _         -> loc
    SymbolSystem loc _     -> loc

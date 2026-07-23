@@ -40,6 +40,7 @@ data SemError
    | SEInfiniteType Location Int Type
    | SETooManyArgs Location Type
    | SENotAFunction Location Type
+   | SECtorArityMismatch Location Ident Int Int
    deriving Show
 
 data SemWarning
