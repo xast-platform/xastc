@@ -29,7 +29,7 @@ import Xast.SemAnalyzer.Query
    )
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
-import Xast.Utils.Generic (unreachableWith)
+import Xast.Utils.Generic (unreachableWith, todo__)
 
 -- #### FULL ANALYSIS ####
 
@@ -494,6 +494,9 @@ resolveExpr scope imps (Located loc expr) = case expr of
       forM_ rcAssigns $ \(RecAssign _ value) ->
          resolveExpr scope imps value
 
+   ExpRecUpdate (RecUpdate ruBase ruAssigns) ->
+      todo__ "Resolve rec update expr"
+
    ExpVarGetter baseExpr _ ->
       resolveExpr scope imps baseExpr
 
@@ -673,6 +676,19 @@ inferType imps (Located loc expr) = case expr of
          (t:rest) -> do
             forM_ rest (unify loc t)
             resolve t
+
+   ExpLambda (Lambda args body) -> do
+      argTyVars <- forM args $ const freshTyVar
+      varIds    <- forM args $ const freshVarId
+      let argVars = M.fromList $ zip args (zipWith VarInfo argTyVars varIds)
+
+      bodyTy <- withVars argVars (inferType imps body)
+
+      argTyVars' <- mapM resolve argTyVars
+      bodyTy' <- resolve bodyTy
+      return $ TyFn argTyVars' bodyTy'
+
+   _ -> undefined
 
 inferLetBinds :: [Located ImportDef] -> [Located Let] -> Located Expr -> SemAnalyzer Type
 inferLetBinds imps [] body = inferType imps body

@@ -1,35 +1,15 @@
-{-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
-
-import Test.HUnit
-import Xast.Parser.Common (Parser)
-import Text.Megaparsec (runParser, errorBundlePretty, MonadParsec (eof))
-import Data.Text (Text)
-import Control.Monad (unless)
+import Test.HUnit (runTestTT, Test (TestList, TestLabel), Counts (errors, failures))
+import qualified Parser
 
 main :: IO ()
-main = pure ()
+main = do
+   counts <- runTestTT tests
+   if errors counts + failures counts == 0 
+      then pure () 
+      else fail "Tests failed"
 
-assertParses :: (Eq a, Show a)
-   => Parser a
-   -> Text
-   -> a
-   -> Assertion
-assertParses p input expected =
-   case runParser (p <* eof) "<test>" input of
-      Left e ->
-         assertFailure $
-            "Expected success, got error:\n" <> errorBundlePretty e
-
-      Right found ->
-         unless (found == expected) $
-            assertFailure $
-               "Parsed value mismatch:\n" <>
-               "   expected: " <> show expected <> "\n" <>
-               "   found:    " <> show found
-
-assertFails :: Parser a -> Text -> Assertion
-assertFails p input =
-   case runParser (p <* eof) "<test>" input of
-      Right _ -> assertFailure "Expected failure, but parsing succeeded"
-      Left _  -> return ()
+tests :: Test
+tests = TestList 
+   [ TestLabel "Parser" Parser.tests
+   ]

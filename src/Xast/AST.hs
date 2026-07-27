@@ -9,7 +9,11 @@ data Located a = Located
    { lLocation :: Location
    , lNode     :: a
    }
-   deriving (Eq, Show, Ord)
+   deriving (Show, Ord)
+
+instance Eq a => Eq (Located a) where
+   (==) :: Eq a => Located a -> Located a -> Bool
+   a == b = lNode a == lNode b
 
 data Location = Location 
    { lPos :: SourcePos
@@ -50,6 +54,7 @@ data Expr
    | ExpIfThen IfThenElse                 -- if ... then ... else ...
    -- Syntactic sugar (should be de-sugared after typecheck)
    | ExpRecConstruct RecConstruct         -- Point { x = 12, y = 34 }
+   | ExpRecUpdate RecUpdate               -- value { field = 12, field2 = True }
    | ExpVarGetter (Located Expr) Getter   -- var.x, tuple.0
    deriving (Eq, Show)
 
@@ -62,6 +67,12 @@ data RecConstruct = RecConstruct
    { rcBind :: ModBind
    , rcCon :: Ident
    , rcAssigns :: [RecAssign]
+   }
+   deriving (Eq, Show)
+
+data RecUpdate = RecUpdate
+   { ruBase :: Located Expr
+   , ruAssigns :: [RecAssign]
    }
    deriving (Eq, Show)
 

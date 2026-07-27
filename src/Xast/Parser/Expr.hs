@@ -19,8 +19,8 @@ pattern' = choice
    , PatWildcard  <$ symbol "_"
    , PatVar       <$> varIdent
    , PatCon       <$> typeIdent <*> many pattern'
-   , PatLit       <$> try literal
    , PatList      <$> between (symbol "[") (symbol "]") (pattern' `sepBy` symbol ",")
+   , PatLit       <$> literal
    ]
 
 tupleOrParensPat :: Parser Pattern
@@ -35,9 +35,9 @@ atomExpr :: Parser (Located Expr)
 atomExpr = do
    base <- located $ choice
       [ tupleOrParens
-      , ExpVar    <$> (optional . try $ typeIdent <* ".") <*> varIdent
-      , ExpRecConstruct <$> try recConstruct
-      , ExpCon    <$> (optional . try $ typeIdent <* ".") <*> typeIdent
+      , try (ExpVar           <$> optional (try (typeIdent <* symbol ".")) <*> varIdent)
+      , try (ExpRecConstruct  <$> recConstruct)
+      , ExpCon    <$> optional (try (typeIdent <* symbol ".")) <*> typeIdent
       , ExpList   <$> between (symbol "[") (symbol "]") (expr `sepBy` symbol ",")
       , ExpLit    <$> literal
       , ExpLambda <$> lambda
@@ -61,12 +61,12 @@ tupleOrParens = between (symbol "(") (symbol ")") $ do
 
 recConstruct :: Parser RecConstruct
 recConstruct = do
-   rcBind    <- optional . try $ typeIdent <* "."
+   rcBind    <- optional (try (typeIdent <* symbol "."))
    rcCon     <- typeIdent
-   rcAssigns <- between 
-      (symbol "{") 
-      (symbol "}") 
-      (recAssign `sepBy1` symbol ",")
+   rcAssigns <- between
+      (symbol "{")
+      (symbol "}")
+      (recAssign `sepEndBy1` symbol ",")
 
    return RecConstruct {..}
 
@@ -80,7 +80,7 @@ varGetter = choice
    ]
 
 match' :: Parser Match
-match' = do 
+match' = do
    _         <- symbol "match"
    mtExp     <- expr
    _         <- symbol "with"
@@ -154,23 +154,23 @@ opLen op = case op of
    OpConcat  -> 2
 
 binOp :: Location -> BuiltinOp -> Located Expr -> Located Expr -> Located Expr
-binOp opLoc op a@(Located (Location posA offA _) _) b@(Located (Location _ offB lenB) _) = 
+binOp opLoc op a@(Located (Location posA offA _) _) b@(Located (Location _ offB lenB) _) =
    -- Span from start of a to end of b
    let totalLen = (offB + lenB) - offA
-   in Located 
-         (Location posA offA totalLen) 
-         (ExpApp 
+   in Located
+         (Location posA offA totalLen)
+         (ExpApp
             (Located opLoc
-            (ExpApp 
-               (Located opLoc (opVar op)) 
+            (ExpApp
+               (Located opLoc (opVar op))
                a
-            )) 
+            ))
          b)
 
 table :: [[Operator Parser (Located Expr)]]
 table =
    [  [ Prefix (unary OpNot)
-      , Prefix (unary OpMinus)
+      , Prefix (unary OpNeg)
       ]
 
    ,  [ InfixR (binary OpPow) ]

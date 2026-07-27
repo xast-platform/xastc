@@ -71,6 +71,9 @@ test-suite xastc-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Main.hs
+    other-modules:
+        Parser,
+        SemAnalyzer
     build-depends:
         base ^>=4.18.3.0,
         megaparsec ==9.7.0,
