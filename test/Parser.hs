@@ -10,7 +10,13 @@ import Control.Monad (unless)
 import Xast.AST
 import Xast.Parser.Ident
 import Xast.Parser.Expr (pattern', expr)
-import Xast.Parser.Type (type')
+import Xast.Parser.Type (type', typeDef)
+import Xast.Parser.Function (func)
+import Xast.Parser.Extern (extern)
+import Xast.Parser.Headers (importDef, moduleDef)
+import Xast.Parser.System (system)
+import Xast.Parser.Program (program)
+import qualified Data.Text as T
 
 loc :: a -> Located a
 loc = Located (Location (initialPos "<test>") 0 0)
@@ -45,12 +51,12 @@ tests = TestList
    , TestLabel "Types"       typeTests
    , TestLabel "Patterns"    patternTests
    , TestLabel "Expressions" exprTests
-   -- , TestLabel "Functions"   functionTests
-   -- , TestLabel "Types"       typeDefTests
-   -- , TestLabel "Extern"      externTests
-   -- , TestLabel "Headers"     headerTests
-   -- , TestLabel "Systems"     systemTests
-   -- , TestLabel "Programs"    programTests
+   , TestLabel "Functions"   functionTests
+   , TestLabel "Types"       typeDefTests
+   , TestLabel "Extern"      externTests
+   , TestLabel "Headers"     headerTests
+   , TestLabel "Systems"     systemTests
+   , TestLabel "Programs"    programTests
    ]
 
 identTests :: Test
@@ -943,4 +949,633 @@ exprTests = TestLabel "Expr (atoms)" $ TestList
 
    , TestCase $
       assertFails expr "1 **"
+   ]
+
+functionTests :: Test
+functionTests = TestLabel "Functions" $ TestList
+   -- Function declarations
+   [ TestCase $
+      assertParses func
+         "fn add(Int, Int) -> Int;"
+         (FnDef $
+            loc $
+               FuncDef
+                  (Ident "add")
+                  [ TyCon $ Ident "Int"
+                  , TyCon $ Ident "Int"
+                  ]
+                  (TyCon $ Ident "Int"))
+
+   , TestCase $
+      assertParses func
+         "fn id(a) -> a;"
+         (FnDef $
+            loc $
+               FuncDef
+                  (Ident "id")
+                  [TyGnr $ Ident "a"]
+                  (TyGnr $ Ident "a"))
+
+   , TestCase $
+      assertParses func
+         "fn makePoint() -> Point;"
+         (FnDef $
+            loc $
+               FuncDef
+                  (Ident "makePoint")
+                  []
+                  (TyCon $ Ident "Point"))
+
+   -- Function implementations
+   , TestCase $
+      assertParses func
+         "fn id x = x;"
+         (FnImpl $
+            loc $
+               FuncImpl
+                  (Ident "id")
+                  [PatVar $ Ident "x"]
+                  (loc $ ExpVar Nothing $ Ident "x"))
+
+   , TestCase $
+      assertParses func
+         "fn const a b = a;"
+         (FnImpl $
+            loc $
+               FuncImpl
+                  (Ident "const")
+                  [ PatVar $ Ident "a"
+                  , PatVar $ Ident "b"
+                  ]
+                  (loc $ ExpVar Nothing $ Ident "a"))
+
+   , TestCase $
+      assertParses func
+         "fn fst (a, b) = a;"
+         (FnImpl $
+            loc $
+               FuncImpl
+                  (Ident "fst")
+                  [PatTuple
+                     [ PatVar $ Ident "a"
+                     , PatVar $ Ident "b"
+                     ]]
+                  (loc $ ExpVar Nothing $ Ident "a"))
+
+   , TestCase $
+      assertParses func
+         "fn isEmpty [] = True;"
+         (FnImpl $
+            loc $
+               FuncImpl
+                  (Ident "isEmpty")
+                  [PatList []]
+                  (loc $ ExpCon Nothing $ Ident "True"))
+
+   -- Failures
+   , TestCase $
+      assertFails func "fn"
+
+   , TestCase $
+      assertFails func "fn foo"
+
+   , TestCase $
+      assertFails func "fn foo()"
+
+   , TestCase $
+      assertFails func "fn foo ="
+
+   , TestCase $
+      assertFails func "fn foo x"
+
+   , TestCase $
+      assertFails func "fn foo(Int)"
+
+   , TestCase $
+      assertFails func "fn foo(Int) ->"
+
+   , TestCase $
+      assertFails func "fn foo(Int) Int;"
+   ]
+
+typeDefTests :: Test
+typeDefTests = TestLabel "Type definitions" $ TestList
+   -- Unit constructor
+   [ TestCase $
+      assertParses typeDef
+         "type Bool = True | False;"
+         (loc $
+            TypeDef
+               (Ident "Bool")
+               []
+               [ loc $ Ctor (Ident "True") PUnit
+               , loc $ Ctor (Ident "False") PUnit
+               ])
+
+   -- Tuple constructor
+   , TestCase $
+      assertParses typeDef
+         "type Maybe a = Just a | Nothing;"
+         (loc $
+            TypeDef
+               (Ident "Maybe")
+               [Ident "a"]
+               [ loc $
+                     Ctor
+                        (Ident "Just")
+                        (PTuple
+                           [TyGnr $ Ident "a"])
+               , loc $
+                     Ctor
+                        (Ident "Nothing")
+                        PUnit
+               ])
+
+   , TestCase $
+      assertParses typeDef
+         "type Either a b = Left a | Right b;"
+         (loc $
+            TypeDef
+               (Ident "Either")
+               [Ident "a", Ident "b"]
+               [ loc $
+                     Ctor
+                        (Ident "Left")
+                        (PTuple [TyGnr $ Ident "a"])
+               , loc $
+                     Ctor
+                        (Ident "Right")
+                        (PTuple [TyGnr $ Ident "b"])
+               ])
+
+   -- Record constructor
+   , TestCase $
+      assertParses typeDef
+         "type Point = Point { x : Int, y : Int };"
+         (loc $
+            TypeDef
+               (Ident "Point")
+               []
+               [ loc $
+                     Ctor
+                        (Ident "Point")
+                        (PRecord
+                           [ Field
+                              (Ident "x")
+                              (TyCon $ Ident "Int")
+                           , Field
+                              (Ident "y")
+                              (TyCon $ Ident "Int")
+                           ])
+               ])
+
+   -- Multiple constructors
+   , TestCase $
+      assertParses typeDef
+         "type Shape = Circle Float | Rectangle Float Float;"
+         (loc $
+            TypeDef
+               (Ident "Shape")
+               []
+               [ loc $
+                     Ctor
+                        (Ident "Circle")
+                        (PTuple
+                           [TyCon $ Ident "Float"])
+               , loc $
+                     Ctor
+                        (Ident "Rectangle")
+                        (PTuple
+                           [ TyCon $ Ident "Float"
+                           , TyCon $ Ident "Float"
+                           ])
+               ])
+
+   -- Failures
+   , TestCase $
+      assertFails typeDef "type"
+
+   , TestCase $
+      assertFails typeDef "type Foo"
+
+   , TestCase $
+      assertFails typeDef "type Foo ="
+
+   , TestCase $
+      assertFails typeDef "type Foo = |"
+
+   , TestCase $
+      assertFails typeDef "type Foo = Bar("
+
+   , TestCase $
+      assertFails typeDef "type Foo = Bar {"
+
+   , TestCase $
+      assertFails typeDef "type Foo = Bar { x : }"
+
+   , TestCase $
+      assertFails typeDef "type Foo = Bar { x Int }"
+   ]
+
+externTests :: Test
+externTests = TestLabel "Extern" $ TestList
+   -- Extern functions
+   [ TestCase $
+      assertParses extern
+         "extern fn puts(String) -> Int;"
+         (ExtFunc $
+            loc $
+               ExternFunc
+                  (Ident "puts")
+                  [TyCon $ Ident "String"]
+                  (TyCon $ Ident "Int"))
+
+   , TestCase $
+      assertParses extern
+         "extern fn malloc(Int) -> Ptr;"
+         (ExtFunc $
+            loc $
+               ExternFunc
+                  (Ident "malloc")
+                  [TyCon $ Ident "Int"]
+                  (TyCon $ Ident "Ptr"))
+
+   , TestCase $
+        assertParses extern
+           "extern fn panic() -> Never;"
+           (ExtFunc $
+              loc $
+                 ExternFunc
+                    (Ident "panic")
+                    []
+                  (TyCon $ Ident "Never"))
+
+   -- Extern types
+   , TestCase $
+      assertParses extern
+         "extern type CString;"
+         (ExtType $
+            loc $
+               ExternType
+                  (Ident "CString")
+                  [])
+
+   , TestCase $
+      assertParses extern
+         "extern type Ptr a;"
+         (ExtType $
+            loc $
+               ExternType
+                  (Ident "Ptr")
+                  [Ident "a"])
+
+   , TestCase $
+      assertParses extern
+         "extern type Either a b;"
+         (ExtType $
+            loc $
+               ExternType
+                  (Ident "Either")
+                  [Ident "a", Ident "b"])
+
+   -- Failures
+   , TestCase $ assertFails extern "extern"
+   , TestCase $ assertFails extern "extern fn"
+   , TestCase $ assertFails extern "extern fn foo"
+   , TestCase $ assertFails extern "extern fn foo("
+   , TestCase $ assertFails extern "extern fn foo()"
+   , TestCase $ assertFails extern "extern fn foo() ->"
+   , TestCase $ assertFails extern "extern type"
+   , TestCase $ assertFails extern "extern type a"
+   ]
+
+headerTests :: Test
+headerTests = TestLabel "Headers" $ TestList
+   -- Modules
+   [ TestCase $
+      assertParses moduleDef
+         "module Main exports *"
+         (loc $
+            ModuleDef
+               (Module [Ident "Main"])
+               (loc ExpFull))
+
+   , TestCase $
+      assertParses moduleDef
+         "module Foo.Bar exports *"
+         (loc $
+            ModuleDef
+               (Module
+                  [ Ident "Foo"
+                  , Ident "Bar"
+                  ])
+               (loc ExpFull))
+
+   , TestCase $
+      assertParses moduleDef
+         "module Game.Player exports { Player, spawn }"
+         (loc $
+            ModuleDef
+               (Module
+                  [ Ident "Game"
+                  , Ident "Player"
+                  ])
+               (loc $
+                  ExpSelect
+                     [ Ident "Player"
+                     , Ident "spawn"
+                     ]))
+
+   -- Imports
+   , TestCase $
+      assertParses importDef
+         "use Math *"
+         (loc $
+            ImportDef
+               (Module [Ident "Math"])
+               ImpFull)
+
+   , TestCase $
+      assertParses importDef
+         "use Math as M"
+         (loc $
+            ImportDef
+               (Module [Ident "Math"])
+               (ImpAlias $
+                  loc $
+                     Ident "M"))
+
+   , TestCase $
+      assertParses importDef
+         "use Math { sin, cos }"
+         (loc $
+            ImportDef
+               (Module [Ident "Math"])
+               (ImpSelect
+                  [ loc $ Ident "sin"
+                  , loc $ Ident "cos"
+                  ]))
+
+   , TestCase $
+      assertParses importDef
+         "use Foo.Bar { Baz, qux }"
+         (loc $
+            ImportDef
+               (Module
+                  [ Ident "Foo"
+                  , Ident "Bar"
+                  ])
+               (ImpSelect
+                  [ loc $ Ident "Baz"
+                  , loc $ Ident "qux"
+                  ]))
+
+   -- Failures
+   , TestCase $ assertFails moduleDef "module"
+   , TestCase $ assertFails moduleDef "module Foo"
+   , TestCase $ assertFails moduleDef "module Foo exports"
+   , TestCase $ assertFails moduleDef "module Foo exports {}"
+   , TestCase $ assertFails importDef "use"
+   , TestCase $ assertFails importDef "use Foo"
+   , TestCase $ assertFails importDef "use Foo as"
+   , TestCase $ assertFails importDef "use Foo {}"
+   , TestCase $ assertFails importDef "use Foo {,}"
+   ]
+
+systemTests :: Test
+systemTests = TestLabel "Systems" $ TestList
+   -- Definitions
+   [ TestCase $
+      assertParses system
+         "system Move -> ();"
+         (SysDef $
+            loc $
+               SystemDef
+                  "default"
+                  (Ident "Move")
+                  []
+                  (TyTuple [])
+                  Nothing)
+
+   , TestCase $
+      assertParses system
+         "system Move #(Position) -> ();"
+         (SysDef $
+            loc $
+               SystemDef
+                  "default"
+                  (Ident "Move")
+                  [QueriedEntity
+                     [TyCon $ Ident "Position"]]
+                  (TyTuple [])
+                  Nothing)
+
+   , TestCase $
+      assertParses system
+         "system Move #(Position, Velocity) -> ();"
+         (SysDef $
+            loc $
+               SystemDef
+                  "default"
+                  (Ident "Move")
+                  [QueriedEntity
+                     [ TyCon $ Ident "Position"
+                     , TyCon $ Ident "Velocity"
+                     ]]
+                  (TyTuple [])
+                  Nothing)
+
+   , TestCase $
+      assertParses system
+         "system Move -> () with event: Damage;"
+         (SysDef $
+            loc $
+               SystemDef
+                  "default"
+                  (Ident "Move")
+                  []
+                  (TyTuple [])
+                  (Just
+                     [WithEvent $ TyCon $ Ident "Damage"]))
+
+   , TestCase $
+      assertParses system
+         "system Move -> () with res: Time;"
+         (SysDef $
+            loc $
+               SystemDef
+                  "default"
+                  (Ident "Move")
+                  []
+                  (TyTuple [])
+                  (Just
+                     [WithRes $ TyCon $ Ident "Time"]))
+
+   , TestCase $
+      assertParses system
+         "@label = \"physics\" system Move -> ();"
+         (SysDef $
+            loc $
+               SystemDef
+                  "physics"
+                  (Ident "Move")
+                  []
+                  (TyTuple [])
+                  Nothing)
+
+   -- Implementations
+   , TestCase $
+      assertParses system
+         "system Move = pos;"
+         (SysImpl $
+            loc $
+               SystemImpl
+                  (Ident "Move")
+                  []
+                  Nothing
+                  (loc $ ExpVar Nothing $ Ident "pos"))
+
+   , TestCase $
+      assertParses system
+         "system Move #(pos vel) = pos;"
+         (SysImpl $
+            loc $
+               SystemImpl
+                  (Ident "Move")
+                  [EntityPattern
+                     [ PatVar $ Ident "pos"
+                     , PatVar $ Ident "vel"
+                     ]]
+                  Nothing
+                  (loc $ ExpVar Nothing $ Ident "pos"))
+
+   , TestCase $
+      assertParses system
+         "system Move with dt = dt;"
+         (SysImpl $
+            loc $
+               SystemImpl
+                  (Ident "Move")
+                  []
+                  (Just
+                     [PatVar $ Ident "dt"])
+                  (loc $ ExpVar Nothing $ Ident "dt"))
+
+   -- Failures
+   , TestCase $ assertFails system "system"
+   , TestCase $ assertFails system "system Move"
+   , TestCase $ assertFails system "system Move ->"
+   , TestCase $ assertFails system "system Move ="
+   , TestCase $ assertFails system "system Move #("
+   , TestCase $ assertFails system "@label ="
+   ]
+
+programTests :: Test
+programTests = TestLabel "Programs" $ TestList
+   [ TestCase $
+      assertParses program
+         (T.unlines
+            [ "module Main exports *"
+            , "fn main () -> Int;"
+            ])
+         (Program
+            MStrict
+            (loc $
+               ModuleDef
+                  (Module [Ident "Main"])
+                  (loc ExpFull))
+            []
+            [ StmtFunc $
+                  FnDef $
+                     loc $
+                        FuncDef
+                           (Ident "main")
+                           []
+                           (TyCon $ Ident "Int")
+            ])
+
+   , TestCase $
+      assertParses program
+         (T.unlines
+            [ "@mode = \"safe\""
+            , "module Main exports *"
+            , "extern type CString;"
+            ])
+         (Program
+            MSafe
+            (loc $
+               ModuleDef
+                  (Module [Ident "Main"])
+                  (loc ExpFull))
+            []
+            [ StmtExtern $
+                  ExtType $
+                     loc $
+                        ExternType
+                           (Ident "CString")
+                           []
+            ])
+
+   , TestCase $
+      assertParses program
+         (T.unlines
+            [ "@mode = \"dynamic\""
+            , "module Game.Main exports *"
+            , "use Math *"
+            , "type Bool = True | False;"
+            ])
+         (Program
+            MDynamic
+            (loc $
+               ModuleDef
+                  (Module
+                     [Ident "Game", Ident "Main"])
+                  (loc ExpFull))
+            [loc $
+               ImportDef
+                  (Module [Ident "Math"])
+                  ImpFull]
+            [ StmtTypeDef $
+                  loc $
+                     TypeDef
+                        (Ident "Bool")
+                        []
+                        [ loc $ Ctor (Ident "True") PUnit
+                        , loc $ Ctor (Ident "False") PUnit
+                        ]
+            ])
+
+   -- Failures
+   , TestCase $
+      assertFails program ""
+
+   , TestCase $
+      assertFails program
+         "fn main () -> Int;"
+
+   , TestCase $
+      assertFails program
+         "module Main exports *"
+
+   , TestCase $
+      assertFails program $
+         T.unlines
+            [ "@mode = \"invalid\""
+            , "module Main exports *"
+            , "fn main () -> Int;"
+            ]
+
+   , TestCase $
+      assertFails program $
+         T.unlines
+            [ "module Main exports *"
+            , "use"
+            ]
+
+   , TestCase $
+      assertFails program $
+         T.unlines
+            [ "module Main exports *"
+            , "unknown"
+            ]
    ]
