@@ -33,6 +33,12 @@ data SemError
    | SEUndefinedVar Location Ident
    | SEUndefinedCon Location Ident
    | SEUndefinedAlias FilePath Ident
+   | SEMissingFnDef Location Ident
+   | SEExtraFnDef Location Ident [Location]
+   | SEMissingFnImpls Location Ident
+   | SEMissingSystemDef Location Ident
+   | SEExtraSystemDef Location Ident [Location]
+   | SEMissingSystemImpls Location Ident
    -- Type checking
    | SETypeError Location Type Type
    | SEListElementTypeMismatch Location Type Location Type
@@ -47,6 +53,7 @@ data SemWarning
    = SWUnusedImport Module
    | SWDeadCode Ident
    | SWRedundantImport ImportIntersection
+   | SWFunctionGayness Location Ident Int
    deriving Show
 
 data XastError

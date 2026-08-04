@@ -15,9 +15,10 @@ import Xast.Error.Types (XastError (..))
 import Xast.Parser.Program (parseProgram)
 import Xast.AST
 import Xast.SemAnalyzer.Analysis (fullAnalysis)
-import Xast.Error.Pretty (PrintError(printError))
+import Xast.Error.Pretty (PrintError(printError), printWarnings)
 import Xast.Utils.Pretty
 import qualified Toml
+import Control.Monad.RWS (MonadTrans(lift))
 
 runCompile :: Maybe FilePath -> IO ()
 runCompile dir = runCompile_ dir >>= \case
@@ -25,17 +26,17 @@ runCompile dir = runCompile_ dir >>= \case
       let len = length err
       forM_ err printError
 
-      putStrLn 
-         (  show (red (bold ("Compilation failed with " :: String))) 
+      putStrLn
+         (  show (red (bold ("Compilation failed with " :: String)))
          ++ show (yellow (bold (show len)))
          ++ show (red (bold (" errors." :: String)))
          )
 
-   Right 0 -> 
+   Right 0 ->
       print $ green $ bold ("Compilation completed." :: String)
 
-   Right warnings -> 
-      putStrLn 
+   Right warnings ->
+      putStrLn
          (  show (green (bold ("Compilation completed " :: String)))
          ++ show (yellow (bold ("with " <> show warnings <> " warnings")))
          ++ show (green (bold ("." :: String)))
@@ -57,8 +58,8 @@ runCompile_ dir = runExceptT $ do
       Left errors -> throwError (XastTomlDecodeError configFile <$> errors)
       Right cfg   -> pure cfg
 
-   invalidModules <- liftIO $ filterM 
-      (\m -> not <$> doesFileExist (currentDir ++ "/" ++ moduleToPath m)) 
+   invalidModules <- liftIO $ filterM
+      (\m -> not <$> doesFileExist (currentDir ++ "/" ++ moduleToPath m))
       (projModules $ projectConfig config)
 
    case invalidModules of
@@ -68,11 +69,11 @@ runCompile_ dir = runExceptT $ do
    -- Parse modules
    results <- liftIO $ traverse (parseOne currentDir) (projModules $ projectConfig config)
    let (errors, programs) = partitionEithers results
-   unless (null errors) $ 
+   unless (null errors) $
       throwError errors
 
    -- Semantic analysis
-   result <- liftIO $ fullAnalysis programs
+   result <- runExceptT $ fullAnalysis (lift . printWarnings) programs
    ExceptT $ pure $ first (map XastSemAnalyzeError) result
 
 parseOne :: FilePath -> Module -> IO (Either XastError Program)

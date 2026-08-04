@@ -21,7 +21,8 @@ import qualified Data.Text as T
 loc :: a -> Located a
 loc = Located (Location (initialPos "<test>") 0 0)
 
-assertParses :: (Eq a, Show a)
+assertParses 
+   :: (Eq a, Show a)
    => Parser a
    -> Text
    -> a

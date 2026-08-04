@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Xast.SemAnalyzer.Analysis where
 
-import Control.Monad.Except (runExceptT, ExceptT(..))
+import Control.Monad.Except (ExceptT(..))
 import Control.Monad.State
 import Control.Monad (forM_, unless, when, foldM, zipWithM_, zipWithM, forM)
 import Data.Maybe (mapMaybe, fromJust, isJust)
@@ -16,7 +16,6 @@ import Xast.Error.Types
 import Xast.Utils.List (allEqual, pairs)
 import Xast.SemAnalyzer.Monad
 import Xast.SemAnalyzer.Types
-import Xast.Error.Pretty (printWarnings)
 import Data.Function ((&))
 import Xast.SemAnalyzer.Query
    ( lookupCurrentModule
@@ -25,7 +24,7 @@ import Xast.SemAnalyzer.Query
    , lookupCurrentConstructor
    , lookupUnqualifiedConstructor
    , lookupQualifiedConstructor
-   , lookupLocal, withVars
+   , lookupLocal, withVars, lookupCurrentFunction
    )
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
@@ -33,19 +32,27 @@ import Xast.Utils.Generic (unreachableWith, todo__)
 
 -- #### FULL ANALYSIS ####
 
-fullAnalysis :: [Program] -> IO (Either [SemError] Int)
-fullAnalysis progs = runExceptT $ do
+fullAnalysis
+   :: Monad m
+   => ([SemWarning] -> m ())
+   -> [Program]
+   -> ExceptT [SemError] m Int
+fullAnalysis reportWarnings progs = do
    let env = emptyEnv
        st0 = emptySymTable
 
    (st1, warns1) <- ExceptT $ pure $ runPhase env st0 (forM_ progs declareStmts)
-   liftIO $ printWarnings warns1
+   lift $ reportWarnings warns1
 
    (st2, warns2) <- ExceptT $ pure $ runPhase env st1 (importAnalysis progs)
-   liftIO $ printWarnings warns2
+   lift $ reportWarnings warns2
 
-   (_, warns3) <- ExceptT $ pure $ runPhase env st2 (forM_ progs resolveNames)
-   liftIO $ printWarnings warns3
+   (st3, warns3) <- ExceptT $ pure $ runPhase env st2 (forM_ progs resolveNames)
+   lift $ reportWarnings warns3
+
+   -- Typecheck phase
+   (_, warns4) <- ExceptT $ pure $ runPhase env st3 (forM_ progs (const (pure ())))
+   lift $ reportWarnings warns3
 
    return $ sum $ map length [warns1, warns2, warns3]
 
@@ -113,9 +120,14 @@ declareSymbol ident sym re = do
             }
 
 declareFn :: Ident -> Located FuncDef -> SemAnalyzer ()
-declareFn ident (Located loc fd) =
+declareFn ident (Located loc fd@(FuncDef fnIdent fnArgs _)) = do
+   -- Report function gayness
+   let args = length fnArgs
+   when (args > 6) $
+      warnSem (SWFunctionGayness loc fnIdent args)
+
    declareSymbol ident (SymbolFn loc (funcSig fd)) SEFnRedeclaration
-   
+
 declareType :: Ident -> Located TypeDef -> SemAnalyzer ()
 declareType ident (Located loc (TypeDef _ generics ctors)) = do
    let ctorNames = S.fromList [ctorName c | Located _ c <- ctors]
@@ -399,6 +411,8 @@ resolveSelfImport (Program _ (Located from (ModuleDef this _)) imports _) =
 -- #### RESOLVE NAMES ####
 resolveNames :: Program -> SemAnalyzer ()
 resolveNames (Program _ (Located _ (ModuleDef m _)) imps stmts) = do
+   resolveDefImplMatches stmts
+
    modify $ \st -> st { currentModule = m }
    forM_ stmts $ \case
       StmtFunc (FnImpl fnImpl) ->
@@ -413,6 +427,72 @@ resolveNames (Program _ (Located _ (ModuleDef m _)) imps stmts) = do
          in resolveExpr (entScope <> withScope) imps body
 
       _ -> pure ()
+
+resolveDefImplMatches :: [Stmt] -> SemAnalyzer ()
+resolveDefImplMatches stmts = go stmts stmts
+   where
+      go (x:xs) allStmts = case x of
+         StmtFunc (FnImpl (Located impLoc (FuncImpl impIdent _ _))) ->
+            let matching = flip mapMaybe allStmts $ \case
+                  StmtFunc (FnDef (Located defLoc (FuncDef defIdent _ _))) -> 
+                     if defIdent == impIdent then 
+                        Just defLoc
+                     else 
+                        Nothing
+                  _ -> Nothing
+                defCount = length matching
+            in if defCount == 0 then do
+               errSem (SEMissingFnDef impLoc impIdent)
+               go xs allStmts
+            else if defCount > 1 then do
+               errSem (SEExtraFnDef impLoc impIdent matching)
+               go xs allStmts
+            else 
+               go xs allStmts
+
+         StmtFunc (FnDef (Located defLoc (FuncDef defIdent _ _))) ->
+            let matching = flip filter allStmts $ \case
+                  StmtFunc (FnImpl (Located _ (FuncImpl impIdent _ _))) -> impIdent == defIdent
+                  _ -> False
+                count = length matching
+            in if count == 0 then do
+               errSem (SEMissingFnImpls defLoc defIdent)
+               go xs allStmts
+            else 
+               go xs allStmts
+
+         StmtSystem (SysImpl (Located impLoc (SystemImpl impIdent _ _ _))) ->
+            let matching = flip mapMaybe allStmts $ \case
+                  StmtFunc (FnDef (Located defLoc (FuncDef defIdent _ _))) -> 
+                     if defIdent == impIdent then 
+                        Just defLoc
+                     else 
+                        Nothing
+                  _ -> Nothing
+                defCount = length matching
+            in if defCount == 0 then do
+               errSem (SEMissingSystemDef impLoc impIdent)
+               go xs allStmts
+            else if defCount > 1 then do
+               errSem (SEExtraSystemDef impLoc impIdent matching)
+               go xs allStmts
+            else 
+               go xs allStmts
+
+         StmtSystem (SysDef (Located defLoc (SystemDef _ defIdent _ _ _))) ->
+            let matching = flip filter allStmts $ \case
+                  StmtFunc (FnImpl (Located _ (FuncImpl impIdent _ _))) -> impIdent == defIdent
+                  _ -> False
+                count = length matching
+            in if count == 0 then do
+               errSem (SEMissingSystemImpls defLoc defIdent)
+               go xs allStmts
+            else 
+               go xs allStmts
+
+         _ -> go xs allStmts
+
+      go [] _ = pure ()
 
 collectPatternVars :: Pattern -> S.Set Ident
 collectPatternVars = \case
@@ -501,6 +581,20 @@ resolveExpr scope imps (Located loc expr) = case expr of
       resolveExpr scope imps baseExpr
 
 -- #### Type checking ####
+
+typeCheckStmt :: Stmt -> SemAnalyzer ()
+typeCheckStmt (StmtFunc (FnImpl (Located impLoc (FuncImpl fnIdent pats expr)))) = do
+   (FuncSig argTypes retType) <- fromJust <$> lookupCurrentFunction fnIdent
+
+   -- TODO:
+   -- 1) match patterns and args count
+   -- 2) match patterns and args types
+   -- 3) withVars inferType of `expr`
+   -- 4) compare types
+
+   pure ()
+
+typeCheckStmt _ = undefined
 
 freshTyVar :: SemAnalyzer Type
 freshTyVar = do
@@ -739,7 +833,7 @@ inferPattern imps loc ty = \case
                else
                   M.unions <$> zipWithM (inferPattern imps loc) expectedFieldTys ps
 
-         Just invalid -> 
+         Just invalid ->
             unreachableWith $ "Invalid constructor symbol at " ++ show loc ++ ": " ++ show invalid
 
 ctorType :: Location -> SymbolInfo -> SemAnalyzer Type
@@ -797,7 +891,7 @@ literalType (LitChar _) = pure $ TyCon (Ident "Char")
 literalType (LitInt _) = pure $ TyCon (Ident "Int")
 literalType (LitFloat _) = pure $ TyCon (Ident "Float")
 literalType (LitTuple xs) = TyTuple <$> mapM (literalType . lNode) xs
-literalType (LitList []) = pure genericList
+literalType (LitList []) = genericList
 literalType (LitList (x:xs)) = do
    -- Check inner list types
    checkLitListType x xs
@@ -826,8 +920,8 @@ checkLitListType (Located firstLoc firstElem) others =
       unless (firstType == otherType) $
          errSem (SEListElementTypeMismatch firstLoc firstType otherLoc otherType)
 
-genericList :: Type
-genericList = TyApp (TyCon (Ident "List")) (TyGnr (Ident "a"))
+genericList :: SemAnalyzer Type
+genericList = TyApp (TyCon (Ident "List")) <$> freshTyVar
 
 boolType :: Type
 boolType = TyCon (Ident "Bool")

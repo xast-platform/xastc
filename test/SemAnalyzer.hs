@@ -1,38 +1,35 @@
 module SemAnalyzer where
 
-import Xast.Error.Types (SemReport (SemWarning, SemError))
-import Xast.SemAnalyzer.Types (SymTable, Env)
-import Xast.SemAnalyzer.Monad (SemAnalyzer, runSemAnalyzer)
-import Data.Functor.Identity (Identity(runIdentity))
-import Test.HUnit (Assertion, assertFailure)
 import Data.List (intercalate)
-import Control.Monad (unless)
+import Data.Text (Text)
+import Xast.Parser.Program (parseProgram)
+import Data.Either (lefts, rights)
+import Xast.SemAnalyzer.Analysis (fullAnalysis)
+import Control.Monad.Except (runExceptT)
+import Test.HUnit (Assertion, assertFailure, Test (..))
 
-assertPhase
-   :: Env
-   -> SymTable
-   -> SemAnalyzer ()
-   -> Assertion
-assertPhase env st phase =
-   let (((), infos), _) = runIdentity (runSemAnalyzer env st phase)
-       errors   = [ e | SemError e <- infos ]
-   in if null errors
-      then pure ()
-      else assertFailure $
-         "Expected success, got errors:\n" <> intercalate "," (map show errors)
+testPrograms :: [Text] -> Assertion
+testPrograms programs =
+   let parsed = parseProgram "<test>" <$> programs
+       erroneous = lefts parsed
+       successful = rights parsed
+   in if not (null erroneous) then 
+      assertFailure $ "Parsing error occurred during semantic tests: " <> intercalate "\n" (map show erroneous)
+   else do
+      result <- runExceptT $ fullAnalysis (const (pure ())) successful
+      case result of
+         Left errors -> assertFailure $ "Semantic analysis error: " <> intercalate "\n" (map show errors)
+         _ -> pure ()
 
-assertPhaseStrict
-   :: Env
-   -> SymTable
-   -> SemAnalyzer ()
-   -> Assertion
-assertPhaseStrict env st phase =
-   let (((), infos), _) = runIdentity (runSemAnalyzer env st phase)
-       errors   = [ e | SemError e <- infos ]
-       warnings = [ w | SemWarning w <- infos ]
-   in if not (null errors) then
-      assertFailure $
-         "Expected success, got errors:\n" <> intercalate "," (map show errors)
-   else unless (null warnings) $ 
-      assertFailure $
-         "Expected success, got warnings:\n" <> intercalate "," (map show warnings)
+tests :: Test
+tests = TestList
+   [ TestLabel "Statement declaration" statementDeclarationTests
+   , TestLabel "Import analysis"       importAnalysisTests
+   , TestLabel "Name resolution"       nameResolutionTests
+   , TestLabel "Typechecking"          typecheckingTests
+   ]
+
+statementDeclarationTests :: Test
+statementDeclarationTests = TestList
+   [ TestCase $ undefined
+   ]
