@@ -31,7 +31,7 @@ tupleOrParensPat = between (symbol "(") (symbol ")") $ do
       [t] -> pure t
       manyT -> pure (PatTuple manyT)
 
-atomExpr :: Parser (Located Expr)
+atomExpr :: Parser (Located (Expr Parsed))
 atomExpr = do
    base <- located $ choice
       [ tupleOrParens
@@ -51,7 +51,7 @@ atomExpr = do
       applyGetter l@(Located (Location posL offL _) _) (Located (Location _ offR lenR) getter) =
          Located (Location posL offL ((offR + lenR) - offL)) (ExpVarGetter l getter)
 
-tupleOrParens :: Parser Expr
+tupleOrParens :: Parser (Expr Parsed)
 tupleOrParens = between (symbol "(") (symbol ")") $ do
    ts <- expr `sepBy` symbol ","
    case ts of
@@ -59,7 +59,7 @@ tupleOrParens = between (symbol "(") (symbol ")") $ do
       [Located _ t] -> pure t
       manyT -> pure (ExpTuple manyT)
 
-recConstruct :: Parser RecConstruct
+recConstruct :: Parser (RecConstruct Parsed)
 recConstruct = do
    rcBind    <- optional (try (typeIdent <* symbol "."))
    rcCon     <- typeIdent
@@ -70,7 +70,7 @@ recConstruct = do
 
    return RecConstruct {..}
 
-recAssign :: Parser RecAssign
+recAssign :: Parser (RecAssign Parsed)
 recAssign = RecAssign <$> located varIdent <* symbol "=" <*> expr
 
 varGetter :: Parser Getter
@@ -79,7 +79,7 @@ varGetter = choice
    , GetField      <$> varIdent
    ]
 
-match' :: Parser Match
+match' :: Parser (Match Parsed)
 match' = do
    _         <- symbol "match"
    mtExp     <- expr
@@ -88,10 +88,10 @@ match' = do
 
    return Match {..}
 
-matchWing :: Parser MatchWing
+matchWing :: Parser (MatchWing Parsed)
 matchWing = MatchWing <$> located pattern' <* symbol "->" <*> expr
 
-term :: Parser (Located Expr)
+term :: Parser (Located (Expr Parsed))
 term = do
    atoms <- some atomExpr
    pure $ foldl1' app atoms
@@ -116,7 +116,7 @@ opIdent op = case op of
    OpConcat  -> Ident "opConcat"
    OpNeg     -> Ident "opNeg"
 
-opVar :: BuiltinOp -> Expr
+opVar :: BuiltinOp -> (Expr Parsed)
 opVar = ExpVar Nothing . opIdent
 
 opToken :: BuiltinOp -> Text
@@ -153,7 +153,7 @@ opLen op = case op of
    OpPipe    -> 2
    OpConcat  -> 2
 
-binOp :: Location -> BuiltinOp -> Located Expr -> Located Expr -> Located Expr
+binOp :: Location -> BuiltinOp -> Located (Expr Parsed) -> Located (Expr Parsed) -> Located (Expr Parsed)
 binOp opLoc op a@(Located (Location posA offA _) _) b@(Located (Location _ offB lenB) _) =
    -- Span from start of a to end of b
    let totalLen = (offB + lenB) - offA
@@ -167,7 +167,7 @@ binOp opLoc op a@(Located (Location posA offA _) _) b@(Located (Location _ offB 
             ))
          b)
 
-table :: [[Operator Parser (Located Expr)]]
+table :: [[Operator Parser (Located (Expr Parsed))]]
 table =
    [  [ Prefix (unary OpNot)
       , Prefix (unary OpNeg)
@@ -195,7 +195,7 @@ table =
    ,  [ InfixL (binary OpConcat) ]
    ]
 
-binary :: BuiltinOp -> Parser (Located Expr -> Located Expr -> Located Expr)
+binary :: BuiltinOp -> Parser (Located (Expr Parsed) -> Located (Expr Parsed) -> Located (Expr Parsed))
 binary op = do
     pos <- getSourcePos
     off <- getOffset
@@ -203,7 +203,7 @@ binary op = do
     let opLoc = Location pos off (opLen op)
     pure (binOp opLoc op)
 
-unary :: BuiltinOp -> Parser (Located Expr -> Located Expr)
+unary :: BuiltinOp -> Parser (Located (Expr Parsed) -> Located (Expr Parsed))
 unary op = do
     pos <- getSourcePos
     off <- getOffset
@@ -211,10 +211,10 @@ unary op = do
     let opLoc = Location pos off (opLen op)
     pure $ \x -> binOp opLoc op (Located opLoc (ExpLit (LitInt 0))) x
 
-expr :: Parser (Located Expr)
+expr :: Parser (Located (Expr Parsed))
 expr = makeExprParser term table
 
-ifThenElse :: Parser IfThenElse
+ifThenElse :: Parser (IfThenElse Parsed)
 ifThenElse = do
    _        <- symbol "if"
    iteIf    <- expr
@@ -225,7 +225,7 @@ ifThenElse = do
 
    return IfThenElse {..}
 
-lambda :: Parser Lambda
+lambda :: Parser (Lambda Parsed)
 lambda = do
    _        <- symbol ".\\"
    lamArgs  <- some (varIdent <|> inferIdent)
@@ -234,7 +234,7 @@ lambda = do
 
    return Lambda {..}
 
-letIn :: Parser LetIn
+letIn :: Parser (LetIn Parsed)
 letIn = do
    linBind <- let' `sepBy1` symbol "and"
    _       <- symbol "in"
@@ -242,7 +242,7 @@ letIn = do
 
    return LetIn {..}
 
-let' :: Parser (Located Let)
+let' :: Parser (Located (Let Parsed))
 let' = located $ do
    _         <- symbol "let"
    letPat    <- pattern'

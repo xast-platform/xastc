@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Xast.AST where
 
 import Data.List (intercalate)
@@ -10,6 +11,10 @@ data Located a = Located
    , lNode     :: a
    }
    deriving (Show, Ord)
+
+instance Functor Located where
+   fmap :: (a -> b) -> Located a -> Located b
+   fmap f (Located loc a) = Located loc (f a) 
 
 instance Eq a => Eq (Located a) where
    (==) :: Eq a => Located a -> Located a -> Bool
@@ -31,53 +36,135 @@ data Mode
    | MDynamic
    deriving (Eq, Show)
 
-data Program = Program 
+data Program a = Program 
    { progMode :: Mode
    , progModuleDef :: Located ModuleDef
    , progImports :: [Located ImportDef]
-   , progStmts :: [Stmt]
+   , progStmts :: [Stmt a]
    }
    deriving (Eq, Show)
 
 type ModBind = Maybe Ident
 
-data Expr
-   = ExpVar ModBind Ident                 -- add, a
-   | ExpCon ModBind Ident                 -- Nothing, Just
-   | ExpTuple [Located Expr]              -- (pos, Event (p, pos));
-   | ExpList [Located Expr]               -- [a, 12, b, c]
-   | ExpLit Literal                       -- "abc", 12, ()
-   | ExpLambda Lambda                     -- .\x y -> x + y
-   | ExpApp (Located Expr) (Located Expr) -- Just 12, func a b
-   | ExpLetIn LetIn                       -- let a = 1 and let b = 2 in ...
-   | ExpMatch Match                       -- match EXPR of 
-   | ExpIfThen IfThenElse                 -- if ... then ... else ...
-   -- Syntactic sugar (should be de-sugared after typecheck)
-   | ExpRecConstruct RecConstruct         -- Point { x = 12, y = 34 }
-   | ExpRecUpdate RecUpdate               -- value { field = 12, field2 = True }
-   | ExpVarGetter (Located Expr) Getter   -- var.x, tuple.0
+data Parsed = Parsed
    deriving (Eq, Show)
+
+newtype Resolved = ResolvedInfo (Maybe Resolution)
+   deriving (Eq, Show)
+
+data Typed = TypedInfo
+   { tyInfoType :: Type
+   , tyInfoResolution :: Maybe Resolution
+   }
+   deriving (Eq, Show)
+
+newtype LocalId = LocalId Int
+   deriving (Eq, Show)
+newtype FunctionId = FunctionId Int
+   deriving (Eq, Show)
+newtype ConstructorId = ConstructorId Int
+   deriving (Eq, Show)
+newtype ExternId = ExternId Int
+   deriving (Eq, Show)
+
+data Resolution
+   = ResLocal LocalId
+   | ResFunction FunctionId
+   | ResConstructor ConstructorId
+   | ResExternFunction ExternId
+   deriving (Eq, Show)
+
+data Expr a
+   = ExpVar a ModBind Ident                 -- add, a
+   | ExpCon a ModBind Ident                 -- Nothing, Just
+   | ExpTuple a [Located (Expr a)]              -- (pos, Event (p, pos));
+   | ExpList a [Located (Expr a)]               -- [a, 12, b, c]
+   | ExpLit a Literal                       -- "abc", 12, ()
+   | ExpLambda a (Lambda a)                     -- .\x y -> x + y
+   | ExpApp a (Located (Expr a)) (Located (Expr a)) -- Just 12, func a b
+   | ExpLetIn a (LetIn a)                       -- let a = 1 and let b = 2 in ...
+   | ExpMatch a (Match a)                       -- match EXPR of 
+   | ExpIfThen a (IfThenElse a)                 -- if ... then ... else ...
+   -- Syntactic sugar (should be de-sugared after typecheck)
+   | ExpRecConstruct a (RecConstruct a)         -- Point { x = 12, y = 34 }
+   | ExpRecUpdate a (RecUpdate a)               -- value { field = 12, field2 = True }
+   | ExpVarGetter a (Located (Expr a)) Getter   -- var.x, tuple.0
+   deriving (Eq, Show)
+
+instance Functor Expr where
+   fmap :: (a -> b) -> Expr a -> Expr b
+   fmap f = \case
+      ExpVar a modBind ident -> 
+         ExpVar (f a) modBind ident
+
+      ExpCon a modBind ident -> 
+         ExpCon (f a) modBind ident
+
+      ExpTuple a exprs -> 
+         ExpTuple (f a) (fmap (fmap (fmap f)) exprs)
+
+      ExpList a exprs -> 
+         ExpList (f a) (fmap (fmap (fmap f)) exprs)
+
+      ExpLit a lit -> 
+         ExpLit (f a) lit
+
+      ExpLambda a lambda -> 
+         ExpLambda (f a) (fmap f lambda)
+
+      ExpApp a e1 e2 -> 
+         ExpApp (f a) (fmap (fmap f) e1) (fmap (fmap f) e2)
+
+      ExpLetIn a letIn -> 
+         ExpLetIn (f a) (fmap f letIn)
+
+      ExpMatch a match -> 
+         ExpMatch (f a) (fmap f match)
+
+      ExpIfThen a ifThen -> 
+         ExpIfThen (f a) (fmap f ifThen)
+
+      ExpRecConstruct a recConstruct -> 
+         ExpRecConstruct (f a) (fmap f recConstruct)
+
+      ExpRecUpdate a recUpdate -> 
+         ExpRecUpdate (f a) (fmap f recUpdate)
+
+      ExpVarGetter a expr getter -> 
+         ExpVarGetter (f a) (fmap (fmap f) expr) getter
 
 data Getter
    = GetField Ident
    | GetTupleField Int
    deriving (Eq, Show)
 
-data RecConstruct = RecConstruct
+data RecConstruct a = RecConstruct
    { rcBind :: ModBind
    , rcCon :: Ident
-   , rcAssigns :: [RecAssign]
+   , rcAssigns :: [RecAssign a]
    }
    deriving (Eq, Show)
 
-data RecUpdate = RecUpdate
-   { ruBase :: Located Expr
-   , ruAssigns :: [RecAssign]
+instance Functor RecConstruct where
+   fmap :: (a -> b) -> RecConstruct a -> RecConstruct b
+   fmap f (RecConstruct rcBind rcCon rcAssigns) = RecConstruct rcBind rcCon (fmap (fmap f) rcAssigns)
+
+data RecUpdate a = RecUpdate
+   { ruBase :: Located (Expr a)
+   , ruAssigns :: [RecAssign a]
    }
    deriving (Eq, Show)
 
-data RecAssign = RecAssign (Located Ident) (Located Expr)
+instance Functor RecUpdate where
+   fmap :: (a -> b) -> RecUpdate a -> RecUpdate b
+   fmap f (RecUpdate ruBase ruAssigns) = RecUpdate (fmap (fmap f) ruBase) (fmap (fmap f) ruAssigns)
+
+data RecAssign a = RecAssign (Located Ident) (Located (Expr a))
    deriving (Eq, Show)
+
+instance Functor RecAssign where
+   fmap :: (a -> b) -> RecAssign a -> RecAssign b
+   fmap f (RecAssign ident expr) = RecAssign ident (fmap (fmap f) expr)
 
 data BuiltinOp 
    -- Math
@@ -98,39 +185,63 @@ data BuiltinOp
    | OpConcat  -- <>
    deriving (Eq, Show)
 
-data Match = Match
-   { mtExp :: Located Expr
-   , mtMatches :: [MatchWing]
+data Match a = Match
+   { mtExp :: Located (Expr a)
+   , mtMatches :: [MatchWing a]
    }
    deriving (Eq, Show)
 
-data MatchWing = MatchWing (Located Pattern) (Located Expr)
+instance Functor Match where
+   fmap :: (a -> b) -> Match a -> Match b
+   fmap f (Match mtExp mtMatches) = Match (fmap (fmap f) mtExp) (fmap (fmap f) mtMatches)
+
+data MatchWing a = MatchWing (Located Pattern) (Located (Expr a))
    deriving (Eq, Show)
 
-data IfThenElse = IfThenElse
-   { iteIf :: Located Expr
-   , iteThen :: Located Expr
-   , iteElse :: Located Expr
+instance Functor MatchWing where
+   fmap :: (a -> b) -> MatchWing a -> MatchWing b
+   fmap f (MatchWing pat expr) = MatchWing pat (fmap (fmap f) expr)
+
+data IfThenElse a = IfThenElse
+   { iteIf :: Located (Expr a)
+   , iteThen :: Located (Expr a)
+   , iteElse :: Located (Expr a)
    }
    deriving (Eq, Show)
 
-data Lambda = Lambda
+instance Functor IfThenElse where
+   fmap :: (a -> b) -> IfThenElse a -> IfThenElse b
+   fmap f (IfThenElse iteIf iteThen iteElse) = IfThenElse (fmap (fmap f) iteIf) (fmap (fmap f) iteThen) (fmap (fmap f) iteElse)
+
+data Lambda a = Lambda
    { lamArgs :: [Ident]
-   , lamBody :: Located Expr
+   , lamBody :: Located (Expr a)
    }
    deriving (Eq, Show)
 
-data LetIn = LetIn
-   { linBind :: [Located Let]
-   , linExpr :: Located Expr
+instance Functor Lambda where
+   fmap :: (a -> b) -> Lambda a -> Lambda b
+   fmap f (Lambda lamArgs lamBody) = Lambda lamArgs (fmap (fmap f) lamBody)
+
+data LetIn a = LetIn
+   { linBind :: [Located (Let a)]
+   , linExpr :: Located (Expr a)
    }
    deriving (Eq, Show)
 
-data Let = Let
+instance Functor LetIn where
+   fmap :: (a -> b) -> LetIn a -> LetIn b
+   fmap f (LetIn lamArgs lamBody) = LetIn (fmap (fmap (fmap f)) lamArgs) (fmap (fmap f) lamBody)
+
+data Let a = Let
    { letPat :: Pattern
-   , letValue :: Located Expr
+   , letValue :: Located (Expr a)
    }
    deriving (Eq, Show)
+
+instance Functor Let where
+   fmap :: (a -> b) -> Let a -> Let b
+   fmap f (Let letPat letValue) = Let letPat (fmap (fmap f) letValue)
 
 data Literal
    = LitString Text
@@ -157,7 +268,7 @@ data ExternType = ExternType
    }
    deriving (Eq, Show)
 
-data Func = FnDef (Located FuncDef) | FnImpl (Located FuncImpl)
+data Func a = FnDef (Located FuncDef) | FnImpl (Located (FuncImpl a))
    deriving (Eq, Show)
 
 -- fn myFunc (Type1, Type2) -> TypeReturn
@@ -169,10 +280,10 @@ data FuncDef = FuncDef
    deriving (Eq, Show)
 
 -- fn IDENT arg1 arg2 ... argN = <IMPL>
-data FuncImpl = FuncImpl
+data FuncImpl a = FuncImpl
    { fnName :: Ident
    , fnArgs :: [Pattern]
-   , fnBody :: Located Expr
+   , fnBody :: Located (Expr a)
    }
    deriving (Eq, Show)
 
@@ -261,14 +372,16 @@ instance Show Ident where
    show :: Ident -> String
    show = unpack . unIdent
 
-data Stmt
+data Stmt a
    = StmtTypeDef (Located TypeDef)
-   | StmtFunc Func
+   | StmtFunc (Func a)
    | StmtExtern Extern
-   | StmtSystem System
+   | StmtSystem (System a)
    deriving (Eq, Show)
 
-data System = SysDef (Located SystemDef) | SysImpl (Located SystemImpl)
+instance 
+
+data System a = SysDef (Located SystemDef) | SysImpl (Located (SystemImpl a))
    deriving (Eq, Show)
 
 data SystemDef = SystemDef
@@ -288,11 +401,11 @@ data WithType
    | WithRes Type
    deriving (Eq, Show)
 
-data SystemImpl = SystemImpl
+data SystemImpl a = SystemImpl
    { sysImName :: Ident
    , sysImEnts :: [EntityPattern]
    , sysImWith :: Maybe [Pattern]
-   , sysImBody :: Located Expr
+   , sysImBody :: Located (Expr a)
    }
    deriving (Eq, Show)
 

@@ -247,6 +247,16 @@ printWarning (SWRedundantImport intr) = case intr of
 
       in printReportAt filename report
 
+printWarning (SWFunctionGayness (Location pos _ len) ident args ) =
+   let filename = sourceName pos
+       report = warnReport
+         ("Function `" <> show ident <> "` is too gay")
+         [ (toPosition pos len filename, Where $ "This function has " <> show args <> " parameters")
+         ]
+         [ Hint "Consider reducing its gayness"]
+
+   in printReportAt filename report
+
 printWarning _ = undefined
 
 highlightModule :: Module -> String
