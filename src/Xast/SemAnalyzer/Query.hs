@@ -1,7 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Functor law" #-}
-{-# HLINT ignore "Use maybe" #-}
 module Xast.SemAnalyzer.Query where
 
 import Xast.SemAnalyzer.Types
@@ -65,21 +62,21 @@ lookupCurrentConstructor :: Ident -> SemAnalyzer (Maybe SymbolInfo)
 lookupCurrentConstructor ident = do
    symbol <- lookupCurrentModule ident
    pure $ case symbol of
-      Just s@(SymbolCtor _ _) -> Just s
+      Just s@(SymbolCtor {}) -> Just s
       _ -> Nothing
 
 lookupUnqualifiedConstructor :: [Located ImportDef] -> Ident -> SemAnalyzer (Maybe SymbolInfo)
 lookupUnqualifiedConstructor imps ident = do
    symbol <- lookupUnqualifiedSymbol imps ident
    pure $ case symbol of
-      Just s@(SymbolCtor _ _) -> Just s
+      Just s@(SymbolCtor {}) -> Just s
       _ -> Nothing
 
 lookupQualifiedConstructor :: [Located ImportDef] -> Ident -> Ident -> SemAnalyzer (Maybe SymbolInfo)
 lookupQualifiedConstructor imps alias ident = do
    symbol <- lookupQualifiedSymbol imps alias ident
    pure $ case symbol of
-      Just s@(SymbolCtor _ _) -> Just s
+      Just s@(SymbolCtor {}) -> Just s
       _ -> Nothing
 
 lookupCurrentConType :: Ident -> SemAnalyzer (Maybe SymbolInfo)
@@ -107,22 +104,22 @@ lookupCurrentFunction :: Ident -> SemAnalyzer (Maybe FuncSig)
 lookupCurrentFunction ident = do
    symbol <- lookupCurrentModule ident
    pure $ case symbol of
-      Just (SymbolFn _ sig)       -> Just sig
-      Just (SymbolExternFn _ sig) -> Just sig
+      Just (SymbolFn _ _ sig)       -> Just sig
+      Just (SymbolExternFn _ _ sig) -> Just sig
       _ -> Nothing
 
 lookupUnqualifiedFunction :: [Located ImportDef] -> Ident -> SemAnalyzer (Maybe FuncSig)
 lookupUnqualifiedFunction imps ident = do
    symbol <- lookupUnqualifiedSymbol imps ident
    pure $ case symbol of
-      Just (SymbolFn _ sig)       -> Just sig
-      Just (SymbolExternFn _ sig) -> Just sig
+      Just (SymbolFn _ _ sig)       -> Just sig
+      Just (SymbolExternFn _ _ sig) -> Just sig
       _ -> Nothing
 
 lookupQualifiedFunction :: [Located ImportDef] -> Ident -> Ident -> SemAnalyzer (Maybe FuncSig)
 lookupQualifiedFunction imps alias ident = do
    symbol <- lookupQualifiedSymbol imps alias ident
    pure $ case symbol of
-      Just (SymbolFn _ sig)       -> Just sig
-      Just (SymbolExternFn _ sig) -> Just sig
+      Just (SymbolFn _ _ sig)       -> Just sig
+      Just (SymbolExternFn _ _ sig) -> Just sig
       _ -> Nothing

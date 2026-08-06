@@ -20,6 +20,10 @@ data SymTable = SymTable
    { modules :: M.Map Module ModuleInfo
    , currentModule :: Module
    , varIdSupply :: Int
+   , localIdSupply :: Int
+   , fnIdSupply :: Int
+   , ctorIdSupply :: Int
+   , externIdSupply :: Int
    , tyVarSupply :: Int
    , tySubst :: M.Map Int Type
    }
@@ -27,9 +31,13 @@ data SymTable = SymTable
 
 emptySymTable :: SymTable
 emptySymTable = SymTable
-   { modules = M.empty 
+   { modules = M.empty
    , currentModule = Module []
    , varIdSupply = 0
+   , localIdSupply = 0
+   , fnIdSupply = 0
+   , ctorIdSupply = 0
+   , externIdSupply = 0
    , tyVarSupply = 0
    , tySubst = M.empty
    }
@@ -48,10 +56,10 @@ emptyModuleInfo = ModuleInfo M.empty S.empty
 
 data SymbolInfo
    = SymbolType Location TypeSig
-   | SymbolCtor Location CtorSig
-   | SymbolFn Location FuncSig
+   | SymbolCtor Location ConstructorId CtorSig
+   | SymbolFn Location FunctionId FuncSig
    | SymbolSystem Location SystemSig
-   | SymbolExternFn Location FuncSig
+   | SymbolExternFn Location ExternId FuncSig
    | SymbolExternType Location
    deriving (Eq, Show)
    
@@ -71,10 +79,10 @@ data TypeSig = TypeSig
 symbolLoc :: SymbolInfo -> Location
 symbolLoc = \case
    SymbolType loc _       -> loc
-   SymbolCtor loc _       -> loc
-   SymbolFn loc _         -> loc
+   SymbolCtor loc _ _     -> loc
+   SymbolFn loc _ _       -> loc
    SymbolSystem loc _     -> loc
-   SymbolExternFn loc _   -> loc
+   SymbolExternFn loc _ _ -> loc
    SymbolExternType loc   -> loc
 
 data SystemSig = SystemSig

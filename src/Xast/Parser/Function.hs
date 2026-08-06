@@ -10,7 +10,7 @@ import Xast.Parser.Expr (expr, pattern')
 import Xast.Parser.Common
 import Xast.AST
 
-func :: Parser Func
+func :: Parser (Func Parsed)
 func = (FnDef <$> funcDef) <-> (FnImpl <$> funcImpl)
 
 funcDef :: Parser (Located FuncDef)
@@ -24,7 +24,7 @@ funcDef = located $ do
 
    return FuncDef {..}
 
-funcImpl :: Parser (Located FuncImpl)
+funcImpl :: Parser (Located (FuncImpl Parsed))
 funcImpl = located $ do
    _        <- symbol "fn"
    fnName   <- fnIdent

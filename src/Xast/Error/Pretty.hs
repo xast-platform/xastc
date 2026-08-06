@@ -197,6 +197,18 @@ instance PrintError SemError where
 
       in printReportAt filename report
 
+   printError (SEFnArityMismatch loc ident expected actual) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ( "Function `" <> show ident <> "` expects " <> show expected
+               <> " argument(s), but got " <> show actual
+            )
+            [ (toPosition pos len filename, This "Called/implemented with the wrong number of arguments") ]
+            []
+
+      in printReportAt filename report
+
    printError (SEUndefinedAlias filename alias) =
       let report = errReport
             ("Undefined module alias: " <> show (blue (show alias)))

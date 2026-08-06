@@ -35,29 +35,29 @@ atomExpr :: Parser (Located (Expr Parsed))
 atomExpr = do
    base <- located $ choice
       [ tupleOrParens
-      , try (ExpVar           <$> optional (try (typeIdent <* symbol ".")) <*> varIdent)
-      , try (ExpRecConstruct  <$> recConstruct)
-      , ExpCon    <$> optional (try (typeIdent <* symbol ".")) <*> typeIdent
-      , ExpList   <$> between (symbol "[") (symbol "]") (expr `sepBy` symbol ",")
-      , ExpLit    <$> literal
-      , ExpLambda <$> lambda
-      , ExpLetIn  <$> letIn
-      , ExpIfThen <$> ifThenElse
-      , ExpMatch  <$> match'
+      , try (ExpVar ParsedInfo           <$> optional (try (typeIdent <* symbol ".")) <*> varIdent)
+      , try (ExpRecConstruct ParsedInfo  <$> recConstruct)
+      , ExpCon ParsedInfo    <$> optional (try (typeIdent <* symbol ".")) <*> typeIdent
+      , ExpList ParsedInfo   <$> between (symbol "[") (symbol "]") (expr `sepBy` symbol ",")
+      , ExpLit ParsedInfo    <$> literal
+      , ExpLambda ParsedInfo <$> lambda
+      , ExpLetIn ParsedInfo  <$> letIn
+      , ExpIfThen ParsedInfo <$> ifThenElse
+      , ExpMatch ParsedInfo  <$> match'
       ]
    getters <- many (located (symbol "." *> varGetter))
    pure $ foldl' applyGetter base getters
    where
       applyGetter l@(Located (Location posL offL _) _) (Located (Location _ offR lenR) getter) =
-         Located (Location posL offL ((offR + lenR) - offL)) (ExpVarGetter l getter)
+         Located (Location posL offL ((offR + lenR) - offL)) (ExpVarGetter ParsedInfo l getter)
 
 tupleOrParens :: Parser (Expr Parsed)
 tupleOrParens = between (symbol "(") (symbol ")") $ do
    ts <- expr `sepBy` symbol ","
    case ts of
-      [] -> pure (ExpTuple [])
+      [] -> pure (ExpTuple ParsedInfo [])
       [Located _ t] -> pure t
-      manyT -> pure (ExpTuple manyT)
+      manyT -> pure (ExpTuple ParsedInfo manyT)
 
 recConstruct :: Parser (RecConstruct Parsed)
 recConstruct = do
@@ -97,7 +97,7 @@ term = do
    pure $ foldl1' app atoms
    where
       app l@(Located (Location posL offL _) _) r@(Located (Location _ offR lenR) _) =
-         Located (Location posL offL ((offR + lenR) - offL)) (ExpApp l r)
+         Located (Location posL offL ((offR + lenR) - offL)) (ExpApp ParsedInfo l r)
 
 opIdent :: BuiltinOp -> Ident
 opIdent op = case op of
@@ -116,8 +116,8 @@ opIdent op = case op of
    OpConcat  -> Ident "opConcat"
    OpNeg     -> Ident "opNeg"
 
-opVar :: BuiltinOp -> (Expr Parsed)
-opVar = ExpVar Nothing . opIdent
+opVar :: BuiltinOp -> Expr Parsed
+opVar = ExpVar ParsedInfo Nothing . opIdent
 
 opToken :: BuiltinOp -> Text
 opToken op = case op of
@@ -159,9 +159,9 @@ binOp opLoc op a@(Located (Location posA offA _) _) b@(Located (Location _ offB 
    let totalLen = (offB + lenB) - offA
    in Located
          (Location posA offA totalLen)
-         (ExpApp
+         (ExpApp ParsedInfo
             (Located opLoc
-            (ExpApp
+            (ExpApp ParsedInfo
                (Located opLoc (opVar op))
                a
             ))
@@ -197,19 +197,19 @@ table =
 
 binary :: BuiltinOp -> Parser (Located (Expr Parsed) -> Located (Expr Parsed) -> Located (Expr Parsed))
 binary op = do
-    pos <- getSourcePos
-    off <- getOffset
-    _ <- symbol (opToken op)
-    let opLoc = Location pos off (opLen op)
-    pure (binOp opLoc op)
+   pos <- getSourcePos
+   off <- getOffset
+   _ <- symbol (opToken op)
+   let opLoc = Location pos off (opLen op)
+   pure (binOp opLoc op)
 
 unary :: BuiltinOp -> Parser (Located (Expr Parsed) -> Located (Expr Parsed))
 unary op = do
-    pos <- getSourcePos
-    off <- getOffset
-    _ <- symbol (opToken op)
-    let opLoc = Location pos off (opLen op)
-    pure $ \x -> binOp opLoc op (Located opLoc (ExpLit (LitInt 0))) x
+   pos <- getSourcePos
+   off <- getOffset
+   _ <- symbol (opToken op)
+   let opLoc = Location pos off (opLen op)
+   pure $ \x -> binOp opLoc op (Located opLoc (ExpLit ParsedInfo (LitInt 0))) x
 
 expr :: Parser (Located (Expr Parsed))
 expr = makeExprParser term table

@@ -76,7 +76,7 @@ runCompile_ dir = runExceptT $ do
    result <- runExceptT $ fullAnalysis (lift . printWarnings) programs
    ExceptT $ pure $ first (map XastSemAnalyzeError) result
 
-parseOne :: FilePath -> Module -> IO (Either XastError Program)
+parseOne :: FilePath -> Module -> IO (Either XastError (Program Parsed))
 parseOne currentDir module_ = runExceptT $ do
    let filepath = currentDir ++ "/" ++ moduleToPath module_
    code <- liftIO $ readFile filepath

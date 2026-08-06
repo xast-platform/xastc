@@ -44,9 +44,13 @@ data Program a = Program
    }
    deriving (Eq, Show)
 
+instance Functor Program where
+   fmap :: (a -> b) -> Program a -> Program b
+   fmap f (Program mode modDef imps stmts) = Program mode modDef imps (fmap (fmap f) stmts)
+
 type ModBind = Maybe Ident
 
-data Parsed = Parsed
+data Parsed = ParsedInfo
    deriving (Eq, Show)
 
 newtype Resolved = ResolvedInfo (Maybe Resolution)
@@ -271,6 +275,11 @@ data ExternType = ExternType
 data Func a = FnDef (Located FuncDef) | FnImpl (Located (FuncImpl a))
    deriving (Eq, Show)
 
+instance Functor Func where
+   fmap :: (a -> b) -> Func a -> Func b
+   fmap f (FnImpl imp) = FnImpl (fmap (fmap f) imp)
+   fmap _ (FnDef def) = FnDef def
+
 -- fn myFunc (Type1, Type2) -> TypeReturn
 data FuncDef = FuncDef
    { fdName :: Ident
@@ -286,6 +295,10 @@ data FuncImpl a = FuncImpl
    , fnBody :: Located (Expr a)
    }
    deriving (Eq, Show)
+
+instance Functor FuncImpl where
+   fmap :: (a -> b) -> FuncImpl a -> FuncImpl b
+   fmap f (FuncImpl fnName fnArgs fnBody) = FuncImpl fnName fnArgs (fmap (fmap f) fnBody)
 
 data Pattern
    = PatVar Ident             -- a
@@ -379,10 +392,20 @@ data Stmt a
    | StmtSystem (System a)
    deriving (Eq, Show)
 
-instance 
+instance Functor Stmt where
+   fmap :: (a -> b) -> Stmt a -> Stmt b
+   fmap f (StmtFunc func) = StmtFunc (fmap f func) 
+   fmap f (StmtSystem sys) = StmtSystem (fmap f sys) 
+   fmap _ (StmtExtern ext) = StmtExtern ext
+   fmap _ (StmtTypeDef td) = StmtTypeDef td
 
 data System a = SysDef (Located SystemDef) | SysImpl (Located (SystemImpl a))
    deriving (Eq, Show)
+
+instance Functor System where
+   fmap :: (a -> b) -> System a -> System b
+   fmap f (SysImpl imp) = SysImpl (fmap (fmap f) imp)
+   fmap _ (SysDef def) = SysDef def
 
 data SystemDef = SystemDef
    { sysLabel :: Text
@@ -408,6 +431,10 @@ data SystemImpl a = SystemImpl
    , sysImBody :: Located (Expr a)
    }
    deriving (Eq, Show)
+
+instance Functor SystemImpl where
+   fmap :: (a -> b) -> SystemImpl a -> SystemImpl b
+   fmap f (SystemImpl name ents with body) = SystemImpl name ents with (fmap (fmap f) body)
 
 newtype EntityPattern = EntityPattern [Pattern]
    deriving (Eq, Show)

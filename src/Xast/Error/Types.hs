@@ -47,6 +47,7 @@ data SemError
    | SETooManyArgs Location Type
    | SENotAFunction Location Type
    | SECtorArityMismatch Location Ident Int Int
+   | SEFnArityMismatch Location Ident Int Int
    deriving Show
 
 data SemWarning

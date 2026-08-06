@@ -16,11 +16,11 @@ import Xast.Parser.Extern
 import Xast.Error.Types (XastError (XastParseError))
 import Xast.AST
 
-parseProgram :: String -> Text -> Either XastError Program
+parseProgram :: String -> Text -> Either XastError (Program Parsed)
 parseProgram filename code = first XastParseError $ 
    runParser (sc *> program <* eof) filename code
 
-program :: Parser Program
+program :: Parser (Program Parsed)
 program = do
    progMode       <- mode <|> pure MStrict
    progModuleDef  <- moduleDef
@@ -42,7 +42,7 @@ mode = do
 stmtKeyword :: Parser Text
 stmtKeyword = "extern" <|> "fn" <|> "type" <|> "system"
 
-stmt :: Parser Stmt
+stmt :: Parser (Stmt Parsed)
 stmt = do
    tok <- lookAhead stmtKeyword
    case tok of

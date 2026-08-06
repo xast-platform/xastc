@@ -13,7 +13,7 @@ import Xast.Parser.Type (type')
 import Xast.Parser.Expr (stringLiteral, expr, pattern')
 import Xast.AST
 
-system :: Parser System
+system :: Parser (System Parsed)
 system = do
    hasLabel <- lookAhead (optional (symbol "@label"))
    if isJust hasLabel
@@ -50,7 +50,7 @@ with = symbol "with" *> (withType `sepBy1` symbol ",")
          , WithRes   <$ symbol "res" <* symbol ":" <*> type'
          ]
 
-systemImpl :: Parser (Located SystemImpl)
+systemImpl :: Parser (Located (SystemImpl Parsed))
 systemImpl = located $ do
    _           <- symbol "system"
    sysImName   <- typeIdent
