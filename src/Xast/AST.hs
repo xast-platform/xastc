@@ -30,15 +30,41 @@ data Location = Location
 sortLocByPos :: Location -> Location -> Ordering
 sortLocByPos locA locB = compare (lPos locA) (lPos locB)
 
-data Mode
-   = MStrict
-   | MSafe
-   | MDynamic
+data Modifier 
+   = FnMod FnModifier
+   | SysMod SysModifier
+   | TypeMod TypeModifier
+   deriving (Eq, Show)
+
+data FnModifier
+   = ModSharedVariant Ident
+   | ModMemoize
+   | ModInline
+   | ModDeprecated Ident
+   deriving (Eq, Show)
+
+data SysModifier
+   = ModCompDispatchMode ComponentDispatchMode
+   | ModLabel Ident
+   | ModDebugName Text
+   | ModParallel
+   deriving (Eq, Show)
+
+data TypeModifier
+   = ModSingleton
+   | ModCopyable
+   | ModTag
+   | ModNonExhaustive
+   deriving (Eq, Show)
+
+data ComponentDispatchMode
+   = CDMStrict
+   | CDMSafe
+   | CDMDynamic
    deriving (Eq, Show)
 
 data Program a = Program 
-   { progMode :: Mode
-   , progModuleDef :: Located ModuleDef
+   { progModuleDef :: Located ModuleDef
    , progImports :: [Located ImportDef]
    , progStmts :: [Stmt a]
    }
@@ -46,7 +72,7 @@ data Program a = Program
 
 instance Functor Program where
    fmap :: (a -> b) -> Program a -> Program b
-   fmap f (Program mode modDef imps stmts) = Program mode modDef imps (fmap (fmap f) stmts)
+   fmap f (Program modDef imps stmts) = Program modDef imps (fmap (fmap f) stmts)
 
 type ModBind = Maybe Ident
 
@@ -282,9 +308,10 @@ instance Functor Func where
 
 -- fn myFunc (Type1, Type2) -> TypeReturn
 data FuncDef = FuncDef
-   { fdName :: Ident
+   { fdMods :: [Modifier]
+   , fdName :: Ident
    , fdArgs :: [Type]
-   , fdRet :: Type
+   , fdRet  :: Type
    }
    deriving (Eq, Show)
 
@@ -408,11 +435,12 @@ instance Functor System where
    fmap _ (SysDef def) = SysDef def
 
 data SystemDef = SystemDef
-   { sysLabel :: Text
-   , sysName :: Ident
-   , sysEnts :: [QueriedEntity]
-   , sysRet :: Type
-   , sysWith :: Maybe [WithType]
+   { sysMods   :: [Modifier]
+   , sysLabel  :: Text
+   , sysName   :: Ident
+   , sysEnts   :: [QueriedEntity]
+   , sysRet    :: Type
+   , sysWith   :: Maybe [WithType]
    }
    deriving (Eq, Show)
 
@@ -440,7 +468,8 @@ newtype EntityPattern = EntityPattern [Pattern]
    deriving (Eq, Show)
 
 data TypeDef = TypeDef
-   { tdName       :: Ident
+   { tdMods       :: [Modifier]
+   , tdName       :: Ident
    , tdGenerics   :: [Ident]
    , tdCtors      :: [Located Ctor]
    }

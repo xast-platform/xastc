@@ -22,22 +22,11 @@ parseProgram filename code = first XastParseError $
 
 program :: Parser (Program Parsed)
 program = do
-   progMode       <- mode <|> pure MStrict
    progModuleDef  <- moduleDef
    progImports    <- many importDef
    progStmts      <- some stmt
 
    return Program { .. }
-
-mode :: Parser Mode
-mode = do
-   str <- symbol "@mode" *> symbol "=" *> stringLiteral
-
-   case str of
-      "strict"  -> return MStrict
-      "safe"    -> return MSafe
-      "dynamic" -> return MDynamic
-      other     -> fail ("Invalid mode `" ++ unpack other ++ "`; expected strict|safe|dynamic")
 
 stmtKeyword :: Parser Text
 stmtKeyword = "extern" <|> "fn" <|> "type" <|> "system"

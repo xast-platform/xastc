@@ -21,6 +21,7 @@ library
         Xast.Error.Pretty,
         Xast.Error.Types,
 
+        Xast.Parser.Modifier,
         Xast.Parser.Common,
         Xast.Parser.Expr,
         Xast.Parser.Extern,

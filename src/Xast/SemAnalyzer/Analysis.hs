@@ -66,17 +66,17 @@ enterModule (ModuleDef m _) = do
             }
 
 declareStmts :: Program Parsed -> SemAnalyzer ()
-declareStmts (Program _ (Located _ md@(ModuleDef m _)) _ stmts) = do
+declareStmts (Program (Located _ md@(ModuleDef m _)) _ stmts) = do
    enterModule md
    modify $ \st -> st { currentModule = m }
    forM_ stmts declareStmt
 
 declareStmt :: Stmt Parsed -> SemAnalyzer ()
 declareStmt = \case
-   StmtFunc (FnDef fd@(Located _ (FuncDef ident _ _))) ->
+   StmtFunc (FnDef fd@(Located _ (FuncDef _ ident _ _))) ->
       declareFn ident fd
 
-   StmtTypeDef td@(Located _ (TypeDef ident _ _)) ->
+   StmtTypeDef td@(Located _ (TypeDef _ ident _ _)) ->
       declareType ident td
 
    StmtExtern (ExtFunc ef@(Located _ (ExternFunc ident _ _))) ->
@@ -85,7 +85,7 @@ declareStmt = \case
    StmtExtern (ExtType et@(Located _ (ExternType ident _))) ->
       declareExternType ident et
 
-   StmtSystem (SysDef sd@(Located _(SystemDef _ ident _ _ _))) ->
+   StmtSystem (SysDef sd@(Located _(SystemDef _ _ ident _ _ _))) ->
       declareSystem ident sd
 
    _ -> return ()
@@ -111,7 +111,7 @@ declareSymbol ident sym re = do
             }
 
 declareFn :: Ident -> Located FuncDef -> SemAnalyzer ()
-declareFn ident (Located loc fd@(FuncDef fnIdent fnArgs _)) = do
+declareFn ident (Located loc fd@(FuncDef _ fnIdent fnArgs _)) = do
    -- Report function gayness
    let args = length fnArgs
    when (args > 6) $
@@ -121,7 +121,7 @@ declareFn ident (Located loc fd@(FuncDef fnIdent fnArgs _)) = do
    declareSymbol ident (SymbolFn loc fid (funcSig fd)) SEFnRedeclaration
 
 declareType :: Ident -> Located TypeDef -> SemAnalyzer ()
-declareType ident (Located loc (TypeDef _ generics ctors)) = do
+declareType ident (Located loc (TypeDef _ _ generics ctors)) = do
    let ctorNames = S.fromList [ctorName c | Located _ c <- ctors]
    declareSymbol ident (SymbolType loc (TypeSig ctorNames generics)) SETypeRedeclaration
    forM_ ctors $ \(Located ctorLoc ctor) ->
@@ -178,7 +178,7 @@ importAnalysis progs = do
    forM_ progs resolveImportDeclConflicts
 
 resolveAmbiguity :: Program Parsed -> SemAnalyzer ()
-resolveAmbiguity (Program _ _ imps _) = do
+resolveAmbiguity (Program _ imps _) = do
    ms <- gets modules
    let aliasPairs =
          [ (a, loc)
@@ -229,7 +229,7 @@ resolveAmbiguity (Program _ _ imps _) = do
             pure ()
 
 resolveImportDeclConflicts :: Program Parsed -> SemAnalyzer ()
-resolveImportDeclConflicts (Program _ (Located _ (ModuleDef m _)) imps _) = do
+resolveImportDeclConflicts (Program (Located _ (ModuleDef m _)) imps _) = do
    ms <- gets modules
    let addMany mp ident loc = M.insertWith S.union ident (S.singleton loc) mp
    imported <- foldM
@@ -270,7 +270,7 @@ resolveImportDeclConflicts (Program _ (Located _ (ModuleDef m _)) imps _) = do
 resolveMissing :: [Program Parsed] -> SemAnalyzer ()
 resolveMissing progs = do
    ms <- gets modules
-   forM_ progs $ \(Program _ _ imps _) ->
+   forM_ progs $ \(Program _ imps _) ->
       forM_ imps $ \(Located loc (ImportDef m pl)) ->
          if M.member m ms then
             case pl of
@@ -327,7 +327,7 @@ setModuleExports m exps =
          }
 
 resolveInvalidExports :: Program Parsed -> SemAnalyzer ()
-resolveInvalidExports (Program _ (Located _ (ModuleDef m (Located loc exps))) _ _) =
+resolveInvalidExports (Program (Located _ (ModuleDef m (Located loc exps))) _ _) =
    case exps of
       ExpSelect ids -> do
          moduleData <- getModuleSymbols m
@@ -342,7 +342,7 @@ resolveInvalidExports (Program _ (Located _ (ModuleDef m (Located loc exps))) _ 
          setModuleExports m (S.fromList symbols)
 
 resolveRedundantImports :: Program Parsed -> SemAnalyzer ()
-resolveRedundantImports (Program _ _ imports _) =
+resolveRedundantImports (Program _ imports _) =
    when (length imports >= 2) $
       let intr = mapMaybe (uncurry intersectImport) (pairs imports)
       in forM_ intr $
@@ -364,10 +364,10 @@ resolveCyclicImports progs = do
          )
 
 getModuleName :: Program Parsed -> (Module, Location)
-getModuleName (Program _ (Located loc (ModuleDef name _)) _ _) = (name, loc)
+getModuleName (Program (Located loc (ModuleDef name _)) _ _) = (name, loc)
 
 getImports :: Program Parsed -> [Module]
-getImports (Program _ _ imports _) = [module_ | Located _ (ImportDef module_ _) <- imports]
+getImports (Program _ imports _) = [module_ | Located _ (ImportDef module_ _) <- imports]
 
 detectCycle
    :: M.Map Module [Module]
@@ -397,14 +397,14 @@ detectCycle moduleMap moduleLocations visited path current loc
                   )
 
 resolveSelfImport :: Program Parsed -> SemAnalyzer ()
-resolveSelfImport (Program _ (Located from (ModuleDef this _)) imports _) =
+resolveSelfImport (Program (Located from (ModuleDef this _)) imports _) =
    case filter (\(Located _ (ImportDef imported _)) -> imported == this) imports of
       (Located to _):_ -> errSem (SESelfImportError this from to)
       [] -> return ()
 
 -- #### RESOLVE NAMES ####
 resolveNames :: Program Parsed -> SemAnalyzer (Program Resolved)
-resolveNames (Program mode md@(Located _ (ModuleDef m _)) imps stmts) = do
+resolveNames (Program md@(Located _ (ModuleDef m _)) imps stmts) = do
    resolveDefImplMatches stmts
 
    modify $ \st -> st { currentModule = m }
@@ -428,7 +428,7 @@ resolveNames (Program mode md@(Located _ (ModuleDef m _)) imps stmts) = do
 
       StmtExtern ext -> pure $ StmtExtern ext
 
-   pure $ Program mode md imps stmts'
+   pure $ Program md imps stmts'
 
 resolveDefImplMatches :: [Stmt Parsed] -> SemAnalyzer ()
 resolveDefImplMatches stmts = go stmts stmts
@@ -436,7 +436,7 @@ resolveDefImplMatches stmts = go stmts stmts
       go (x:xs) allStmts = case x of
          StmtFunc (FnImpl (Located impLoc (FuncImpl impIdent _ _))) ->
             let matching = flip mapMaybe allStmts $ \case
-                  StmtFunc (FnDef (Located defLoc (FuncDef defIdent _ _))) -> 
+                  StmtFunc (FnDef (Located defLoc (FuncDef _ defIdent _ _))) -> 
                      if defIdent == impIdent then 
                         Just defLoc
                      else 
@@ -452,7 +452,7 @@ resolveDefImplMatches stmts = go stmts stmts
             else 
                go xs allStmts
 
-         StmtFunc (FnDef (Located defLoc (FuncDef defIdent _ _))) ->
+         StmtFunc (FnDef (Located defLoc (FuncDef _ defIdent _ _))) ->
             let matching = flip filter allStmts $ \case
                   StmtFunc (FnImpl (Located _ (FuncImpl impIdent _ _))) -> impIdent == defIdent
                   _ -> False
@@ -465,7 +465,7 @@ resolveDefImplMatches stmts = go stmts stmts
 
          StmtSystem (SysImpl (Located impLoc (SystemImpl impIdent _ _ _))) ->
             let matching = flip mapMaybe allStmts $ \case
-                  StmtFunc (FnDef (Located defLoc (FuncDef defIdent _ _))) -> 
+                  StmtFunc (FnDef (Located defLoc (FuncDef _ defIdent _ _))) -> 
                      if defIdent == impIdent then 
                         Just defLoc
                      else 
@@ -481,7 +481,7 @@ resolveDefImplMatches stmts = go stmts stmts
             else 
                go xs allStmts
 
-         StmtSystem (SysDef (Located defLoc (SystemDef _ defIdent _ _ _))) ->
+         StmtSystem (SysDef (Located defLoc (SystemDef _ _ defIdent _ _ _))) ->
             let matching = flip filter allStmts $ \case
                   StmtFunc (FnImpl (Located _ (FuncImpl impIdent _ _))) -> impIdent == defIdent
                   _ -> False
@@ -626,7 +626,7 @@ resolveExpr scope imps (Located loc expr) = case expr of
 -- #### Type checking ####
 
 typeCheck :: Program Resolved -> SemAnalyzer (Program Typed)
-typeCheck (Program mode mdl imps stmts) = Program mode mdl imps <$> traverse (typeCheckStmt imps) stmts
+typeCheck (Program mdl imps stmts) = Program mdl imps <$> traverse (typeCheckStmt imps) stmts
 
 typeCheckStmt :: [Located ImportDef] -> Stmt Resolved -> SemAnalyzer (Stmt Typed)
 typeCheckStmt imps (StmtFunc (FnImpl (Located implLoc (FuncImpl fnIdent pats expr)))) = do

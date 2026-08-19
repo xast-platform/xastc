@@ -110,13 +110,13 @@ data FuncSig = FuncSig
    deriving (Eq, Show)
 
 funcSig :: FuncDef -> FuncSig
-funcSig (FuncDef _ tys rt) = FuncSig tys rt
+funcSig (FuncDef _ _ tys rt) = FuncSig tys rt
 
 externFuncSig :: ExternFunc -> FuncSig
 externFuncSig (ExternFunc _ tys rt) = FuncSig tys rt
 
 systemSig :: SystemDef -> SystemSig
-systemSig (SystemDef label name ents ret withs) =
+systemSig (SystemDef _ label name ents ret withs) =
    SystemSig label name ents ret withs
 
 data SuggestedImports = SuggestedImports Ident [Module]

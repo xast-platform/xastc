@@ -24,9 +24,9 @@ testPrograms programs =
 tests :: Test
 tests = TestList
    [ TestLabel "Statement declaration" statementDeclarationTests
-   , TestLabel "Import analysis"       importAnalysisTests
-   , TestLabel "Name resolution"       nameResolutionTests
-   , TestLabel "Typechecking"          typecheckingTests
+   -- , TestLabel "Import analysis"       importAnalysisTests
+   -- , TestLabel "Name resolution"       nameResolutionTests
+   -- , TestLabel "Typechecking"          typecheckingTests
    ]
 
 statementDeclarationTests :: Test

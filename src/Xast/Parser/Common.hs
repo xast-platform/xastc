@@ -8,7 +8,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Char (space1)
 import qualified Text.Megaparsec.Char.Lexer as L
 
-import Xast.AST (Located(Located), Location (..))
+import Xast.AST (Located(Located), Location(..))
 
 type Parser = Parsec Void Text
 

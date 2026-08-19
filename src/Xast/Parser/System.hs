@@ -12,6 +12,7 @@ import Xast.Parser.Ident (typeIdent)
 import Xast.Parser.Type (type')
 import Xast.Parser.Expr (stringLiteral, expr, pattern')
 import Xast.AST
+import Xast.Parser.Modifier (sysModifier)
 
 system :: Parser (System Parsed)
 system = do
@@ -22,6 +23,7 @@ system = do
 
 systemDef :: Parser (Located SystemDef)
 systemDef = located $ do
+   sysMods   <- many sysModifier
    sysLabel <- (label <|> pure "default") <?> "system label"
    _        <- symbol "system"
    sysName  <- typeIdent

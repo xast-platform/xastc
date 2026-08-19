@@ -9,12 +9,14 @@ import Xast.Parser.Ident (fnIdent)
 import Xast.Parser.Expr (expr, pattern')
 import Xast.Parser.Common
 import Xast.AST
+import Xast.Parser.Modifier (fnModifier)
 
 func :: Parser (Func Parsed)
 func = (FnDef <$> funcDef) <-> (FnImpl <$> funcImpl)
 
 funcDef :: Parser (Located FuncDef)
 funcDef = located $ do
+   fdMods   <- many fnModifier
    _        <- symbol "fn"
    fdName   <- fnIdent
    fdArgs   <- between (symbol "(") (symbol ")") (type' `sepBy` symbol ",")

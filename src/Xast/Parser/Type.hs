@@ -9,9 +9,11 @@ import Xast.Parser.Ident
 import Xast.Parser.Common (Parser, symbol, lexeme, endOfStmt, located)
 import Xast.AST
 import Data.List (foldl1')
+import Xast.Parser.Modifier (typeModifier)
 
 typeDef :: Parser (Located TypeDef)
 typeDef = located $ do
+   tdMods      <- many typeModifier
    _           <- symbol "type"
    tdName      <- typeIdent
    tdGenerics  <- many genericIdent

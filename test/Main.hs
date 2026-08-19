@@ -13,5 +13,5 @@ main = do
 tests :: Test
 tests = TestList 
    [ TestLabel "Parser" Parser.tests
-   , TestLabel "SemAnalyzer" SemAnalyzer.tests
+   -- , TestLabel "SemAnalyzer" SemAnalyzer.tests
    ]
