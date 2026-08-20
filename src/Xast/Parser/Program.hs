@@ -1,32 +1,32 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Xast.Parser.Program where
 
 import Data.Bifunctor (Bifunctor(first))
-import Data.Text (Text, unpack)
+import Data.Text (Text)
 import Text.Megaparsec (MonadParsec (lookAhead, eof), some, many, (<|>), runParser)
 
 import Xast.Parser.Type (typeDef)
 import Xast.Parser.Function (func)
-import Xast.Parser.Common (Parser, symbol, sc)
+import Xast.Parser.Common (Parser, sc)
 import Xast.Parser.Headers (moduleDef, importDef)
-import Xast.Parser.Expr (stringLiteral)
 import Xast.Parser.System (system)
 import Xast.Parser.Extern
 import Xast.Error.Types (XastError (XastParseError))
 import Xast.AST
 
 parseProgram :: String -> Text -> Either XastError (Program Parsed)
-parseProgram filename code = first XastParseError $ 
+parseProgram filename code = 
+   fmap (\p -> p code) $ 
+   first XastParseError $ 
    runParser (sc *> program <* eof) filename code
 
-program :: Parser (Program Parsed)
+program :: Parser (Text -> Program Parsed)
 program = do
    progModuleDef  <- moduleDef
    progImports    <- many importDef
    progStmts      <- some stmt
 
-   return Program { .. }
+   return $ Program progModuleDef progImports progStmts
 
 stmtKeyword :: Parser Text
 stmtKeyword = "extern" <|> "fn" <|> "type" <|> "system"

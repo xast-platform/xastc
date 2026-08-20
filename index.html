@@ -1,0 +1,130 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Typed AST</title><style>body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #1e1e1e; color: #d4d4d4; padding: 2rem; }
+pre.code { white-space: pre-wrap; font-size: 14px; line-height: 1.7; margin: 0; }
+.tok { border-bottom: 1px dashed #569cd6; cursor: pointer; position: relative; border-radius: 2px; }
+.tok:hover, .tok:focus { outline: none; background: rgba(86, 156, 214, 0.18); }
+.tok:hover::after, .tok:focus::after {
+  content: attr(data-type);
+  position: absolute;
+  bottom: 125%;
+  left: 0;
+  background: #252526;
+  color: #4ec9b0;
+  border: 1px solid #569cd6;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-size: 12px;
+  z-index: 10;
+}
+</style></head><body><h1>Typed AST</h1><div><pre class="code">module Main exports { 
+    addVelocity, 
+    isOrigin, 
+    describe, 
+    renderOrigin, 
+    sumFirstTwo, 
+    swap, 
+    addFive, 
+    unbox,
+    moveRight,
+    boxedArea,
+}
+
+use Utils.Components *
+use Utils.Renderer *
+
+extern fn opAdd(Int, Int) -&gt; Int;
+extern fn opMul(Int, Int) -&gt; Int;
+extern fn opEq(Int, Int) -&gt; Bool;
+
+-- Record + positional constructor patterns, multi-clause function, record construction
+fn addVelocity(Pos, Velocity) -&gt; Pos;
+
+fn addVelocity (Pos px py) (Velocity vx vy) =
+    Pos { x = <span class="tok" data-type="Int" tabindex="0">px </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">vx</span>, y = <span class="tok" data-type="Int" tabindex="0">py </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">vy </span>};
+
+fn addVelocity pos (Velocity 0 0) =
+    <span class="tok" data-type="Pos" tabindex="0">pos</span>;
+
+-- if/then/else, comparison, var getter
+fn isOrigin(Pos) -&gt; Bool;
+fn isOrigin (Pos px py) =
+    if <span class="tok" data-type="Int" tabindex="0">px </span><span class="tok" data-type="fn(Int, Int) -&gt; Bool" tabindex="0">==</span> <span class="tok" data-type="Int" tabindex="0">0 </span>then <span class="tok" data-type="Bool" tabindex="0">True </span>else <span class="tok" data-type="Bool" tabindex="0">False</span>;
+
+-- match over a sum type
+fn describe(Shape) -&gt; Int;
+fn describe shape =
+    match <span class="tok" data-type="Shape" tabindex="0">shape </span>with
+        Circle r -&gt; <span class="tok" data-type="Int" tabindex="0">r</span>,
+        Rectangle w h -&gt; <span class="tok" data-type="Int" tabindex="0">w </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">h</span>;
+
+-- cross-module extern call, record construction as an argument
+fn renderOrigin(Renderer) -&gt; Renderer;
+fn renderOrigin renderer =
+    <span class="tok" data-type="fn(Pos, Renderer) -&gt; Renderer" tabindex="0">drawCircle </span>(Pos { x = <span class="tok" data-type="Int" tabindex="0">0</span>, y = <span class="tok" data-type="Int" tabindex="0">0 </span>}) <span class="tok" data-type="Renderer" tabindex="0">renderer</span>;
+
+-- fixed-length list pattern
+fn sumFirstTwo(List Int) -&gt; Int;
+fn sumFirstTwo pair =
+    match <span class="tok" data-type="List Int" tabindex="0">pair </span>with
+        [a, b] -&gt; <span class="tok" data-type="Int" tabindex="0">a </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">b</span>,
+        _ -&gt; <span class="tok" data-type="Int" tabindex="0">0</span>;
+
+-- tuples
+fn swap((a, b)) -&gt; (b, a);
+fn swap (a, b) = (<span class="tok" data-type="b" tabindex="0">b</span>, <span class="tok" data-type="a" tabindex="0">a</span>);
+
+-- lambda + closure over an outer var
+fn addFive(Int) -&gt; Int;
+fn addFive n =
+    (.\x -&gt; <span class="tok" data-type="Int" tabindex="0">x </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">n</span>) <span class="tok" data-type="Int" tabindex="0">5</span>;
+
+-- generic type instantiation
+fn unbox(Box a) -&gt; a;
+fn unbox (Box n) = <span class="tok" data-type="a" tabindex="0">n</span>;
+
+fn boxedArea(Box Shape) -&gt; Int;
+fn boxedArea box =
+    let shape = <span class="tok" data-type="fn(Box Shape) -&gt; Shape" tabindex="0">unbox </span><span class="tok" data-type="Box Shape" tabindex="0">box </span>in
+    let area =
+        match <span class="tok" data-type="Shape" tabindex="0">shape </span>with
+            Circle r -&gt; <span class="tok" data-type="Int" tabindex="0">r </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">*</span> <span class="tok" data-type="Int" tabindex="0">r</span>,
+            Rectangle w h -&gt; <span class="tok" data-type="Int" tabindex="0">w </span><span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">*</span> <span class="tok" data-type="Int" tabindex="0">h
+    </span>in
+    if <span class="tok" data-type="Int" tabindex="0">area </span><span class="tok" data-type="fn(Int, Int) -&gt; Bool" tabindex="0">==</span> <span class="tok" data-type="Int" tabindex="0">0 </span>then <span class="tok" data-type="Int" tabindex="0">1 </span>else <span class="tok" data-type="Int" tabindex="0">area</span>;
+
+-- record update (Haskell-style: base { field = expr })
+fn moveRight(Pos) -&gt; Pos;
+fn moveRight pos =
+    <span class="tok" data-type="Pos" tabindex="0">pos </span>{ x = <span class="tok" data-type="Pos" tabindex="0">pos</span>.x <span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">1 </span>};
+
+system MoveSystem #(Pos, Velocity) -&gt; Pos;
+
+system MoveSystem #(pos (Velocity vx vy)) =
+    Pos { x = <span class="tok" data-type="Pos" tabindex="0">pos</span>.x <span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">vx</span>, y = <span class="tok" data-type="Pos" tabindex="0">pos</span>.y <span class="tok" data-type="fn(Int, Int) -&gt; Int" tabindex="0">+</span> <span class="tok" data-type="Int" tabindex="0">vy </span>};
+
+system RenderSystem #(Pos) -&gt; Pos with res: Renderer;
+
+system RenderSystem #(pos) with renderer =
+    <span class="tok" data-type="Pos" tabindex="0">pos</span>;
+</pre><hr/><pre class="code">module Utils.Components exports { Pos, Velocity, Player, Box, Bool, True, False, Shape, Circle, Rectangle }
+
+type Pos = Pos {
+   x : Int,
+   y : Int
+};
+
+type Velocity = Velocity Int Int;
+
+type Player = Player;
+
+type Box a = Box a;
+
+type Bool = True | False;
+
+type Shape
+   = Circle Int
+   | Rectangle Int Int;
+</pre><hr/><pre class="code">module Utils.Renderer exports { Renderer, drawCircle }
+
+extern type Renderer;
+extern fn drawCircle(Pos, Renderer) -&gt; Renderer;</pre></div></body></html>

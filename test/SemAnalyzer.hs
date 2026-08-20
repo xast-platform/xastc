@@ -16,7 +16,7 @@ testPrograms programs =
    in if not (null erroneous) then 
       assertFailure $ "Parsing error occurred during semantic tests: " <> intercalate "\n" (map show erroneous)
    else do
-      result <- runExceptT $ fullAnalysis (const (pure ())) successful
+      result <- runExceptT $ fullAnalysis (const (pure ())) (const (const (pure ()))) successful
       case result of
          Left errors -> assertFailure $ "Semantic analysis error: " <> intercalate "\n" (map show errors)
          _ -> pure ()

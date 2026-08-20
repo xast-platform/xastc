@@ -67,12 +67,13 @@ data Program a = Program
    { progModuleDef :: Located ModuleDef
    , progImports :: [Located ImportDef]
    , progStmts :: [Stmt a]
+   , progSource :: Text
    }
    deriving (Eq, Show)
 
 instance Functor Program where
    fmap :: (a -> b) -> Program a -> Program b
-   fmap f (Program modDef imps stmts) = Program modDef imps (fmap (fmap f) stmts)
+   fmap f (Program modDef imps stmts src) = Program modDef imps (fmap (fmap f) stmts) src
 
 type ModBind = Maybe Ident
 

@@ -73,7 +73,7 @@ runCompile_ dir = runExceptT $ do
       throwError errors
 
    -- Semantic analysis
-   result <- runExceptT $ fullAnalysis (lift . printWarnings) programs
+   result <- runExceptT $ fullAnalysis  (lift . printWarnings) (\path content -> liftIO $ writeFile path content) programs
    ExceptT $ pure $ first (map XastSemAnalyzeError) result
 
 parseOne :: FilePath -> Module -> IO (Either XastError (Program Parsed))

@@ -52,7 +52,7 @@ fn sumFirstTwo pair =
         _ -> 0;
 
 -- tuples
-fn swap((Int, Int)) -> (Int, Int);
+fn swap((a, b)) -> (b, a);
 fn swap (a, b) = (b, a);
 
 -- lambda + closure over an outer var
@@ -61,12 +61,12 @@ fn addFive n =
     (.\x -> x + n) 5;
 
 -- generic type instantiation
-fn unbox(Box Int) -> Int;
+fn unbox(Box a) -> a;
 fn unbox (Box n) = n;
 
 fn boxedArea(Box Shape) -> Int;
 fn boxedArea box =
-    let Box shape = box in
+    let shape = unbox box in
     let area =
         match shape with
             Circle r -> r * r,

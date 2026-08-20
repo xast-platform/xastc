@@ -17,6 +17,7 @@ library
         Xast.AST,
         Xast.Config,
         Xast.Pipeline,
+        Xast.Html,
 
         Xast.Error.Pretty,
         Xast.Error.Types,

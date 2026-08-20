@@ -6,7 +6,7 @@ import Control.Monad.Except (ExceptT(..))
 import Control.Monad.State
 import Control.Monad (forM_, unless, when, foldM, zipWithM_, zipWithM, forM)
 import Data.Maybe (mapMaybe, fromJust, fromMaybe)
-import Data.List (sortBy)
+import Data.List (sortBy, intercalate, intersperse)
 import Data.Foldable (foldl')
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -20,16 +20,19 @@ import Data.Function ((&))
 import Xast.SemAnalyzer.Query
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
-import Xast.Utils.Generic (unreachableWith)
+import Xast.Utils.Generic (unreachableWith, (<--))
+import Xast.Html (renderDocument, renderTypedProgram, div_, hr, typedAstPage)
+import Data.Text (unpack)
 
 -- #### FULL ANALYSIS ####
 
 fullAnalysis
    :: Monad m
    => ([SemWarning] -> m ())
+   -> (FilePath -> String -> m ())
    -> [Program Parsed]
    -> ExceptT [SemError] m Int
-fullAnalysis reportWarnings progs = do
+fullAnalysis reportWarnings saveFile progs = do
    let env = emptyEnv
        st0 = emptySymTable
 
@@ -44,6 +47,17 @@ fullAnalysis reportWarnings progs = do
 
    (progsTyped, st4, warns4) <- ExceptT $ pure $ runPhase env st3 (forM progsResolved typeCheck)
    lift $ reportWarnings warns4
+
+   -- Types stored on AST nodes may have been frozen before later unification
+   -- resolved their type variables (e.g. a variable's own reference is typed
+   -- before its use forces a substitution). Zonk every node against the final
+   -- substitution map so the typed AST reflects fully-resolved types.
+   let progsZonked = map (zonkProgram (tySubst st4)) progsTyped
+
+   let htmlProgs = map renderTypedProgram progsZonked
+   let htmlBox = div_ [] (intersperse hr htmlProgs)
+   let txt = renderDocument (typedAstPage "Typed AST" htmlBox)
+   _ <- lift $ saveFile "index.html" (unpack txt)
 
    return $ sum $ map length [warns1, warns2, warns3, warns4]
 
@@ -66,7 +80,7 @@ enterModule (ModuleDef m _) = do
             }
 
 declareStmts :: Program Parsed -> SemAnalyzer ()
-declareStmts (Program (Located _ md@(ModuleDef m _)) _ stmts) = do
+declareStmts (Program (Located _ md@(ModuleDef m _)) _ stmts _) = do
    enterModule md
    modify $ \st -> st { currentModule = m }
    forM_ stmts declareStmt
@@ -189,7 +203,7 @@ importAnalysis progs = do
    forM_ progs resolveImportDeclConflicts
 
 resolveAmbiguity :: Program Parsed -> SemAnalyzer ()
-resolveAmbiguity (Program _ imps _) = do
+resolveAmbiguity (Program _ imps _ _) = do
    ms <- gets modules
    let aliasPairs =
          [ (a, loc)
@@ -240,7 +254,7 @@ resolveAmbiguity (Program _ imps _) = do
             pure ()
 
 resolveImportDeclConflicts :: Program Parsed -> SemAnalyzer ()
-resolveImportDeclConflicts (Program (Located _ (ModuleDef m _)) imps _) = do
+resolveImportDeclConflicts (Program (Located _ (ModuleDef m _)) imps _ _) = do
    ms <- gets modules
    let addMany mp ident loc = M.insertWith S.union ident (S.singleton loc) mp
    imported <- foldM
@@ -281,7 +295,7 @@ resolveImportDeclConflicts (Program (Located _ (ModuleDef m _)) imps _) = do
 resolveMissing :: [Program Parsed] -> SemAnalyzer ()
 resolveMissing progs = do
    ms <- gets modules
-   forM_ progs $ \(Program _ imps _) ->
+   forM_ progs $ \(Program _ imps _ _) ->
       forM_ imps $ \(Located loc (ImportDef m pl)) ->
          if M.member m ms then
             case pl of
@@ -338,7 +352,7 @@ setModuleExports m exps =
          }
 
 resolveInvalidExports :: Program Parsed -> SemAnalyzer ()
-resolveInvalidExports (Program (Located _ (ModuleDef m (Located loc exps))) _ _) =
+resolveInvalidExports (Program (Located _ (ModuleDef m (Located loc exps))) _ _ _) =
    case exps of
       ExpSelect ids -> do
          moduleData <- getModuleSymbols m
@@ -353,7 +367,7 @@ resolveInvalidExports (Program (Located _ (ModuleDef m (Located loc exps))) _ _)
          setModuleExports m (S.fromList symbols)
 
 resolveRedundantImports :: Program Parsed -> SemAnalyzer ()
-resolveRedundantImports (Program _ imports _) =
+resolveRedundantImports (Program _ imports _ _) =
    when (length imports >= 2) $
       let intr = mapMaybe (uncurry intersectImport) (pairs imports)
       in forM_ intr $
@@ -375,10 +389,10 @@ resolveCyclicImports progs = do
          )
 
 getModuleName :: Program Parsed -> (Module, Location)
-getModuleName (Program (Located loc (ModuleDef name _)) _ _) = (name, loc)
+getModuleName (Program (Located loc (ModuleDef name _)) _ _ _) = (name, loc)
 
 getImports :: Program Parsed -> [Module]
-getImports (Program _ imports _) = [module_ | Located _ (ImportDef module_ _) <- imports]
+getImports (Program _ imports _ _) = [module_ | Located _ (ImportDef module_ _) <- imports]
 
 detectCycle
    :: M.Map Module [Module]
@@ -408,14 +422,14 @@ detectCycle moduleMap moduleLocations visited path current loc
                   )
 
 resolveSelfImport :: Program Parsed -> SemAnalyzer ()
-resolveSelfImport (Program (Located from (ModuleDef this _)) imports _) =
+resolveSelfImport (Program (Located from (ModuleDef this _)) imports _ _) =
    case filter (\(Located _ (ImportDef imported _)) -> imported == this) imports of
       (Located to _):_ -> errSem (SESelfImportError this from to)
       [] -> return ()
 
 -- #### RESOLVE NAMES ####
 resolveNames :: Program Parsed -> SemAnalyzer (Program Resolved)
-resolveNames (Program md@(Located _ (ModuleDef m _)) imps stmts) = do
+resolveNames (Program md@(Located _ (ModuleDef m _)) imps stmts src) = do
    resolveDefImplMatches stmts
 
    modify $ \st -> st { currentModule = m }
@@ -439,7 +453,7 @@ resolveNames (Program md@(Located _ (ModuleDef m _)) imps stmts) = do
 
       StmtExtern ext -> pure $ StmtExtern ext
 
-   pure $ Program md imps stmts'
+   pure $ Program md imps stmts' src
 
 resolveDefImplMatches :: [Stmt Parsed] -> SemAnalyzer ()
 resolveDefImplMatches stmts = go stmts stmts
@@ -641,9 +655,9 @@ resolveExpr scope imps (Located loc expr) = case expr of
 -- #### Type checking ####
 
 typeCheck :: Program Resolved -> SemAnalyzer (Program Typed)
-typeCheck (Program mdl@(Located _ (ModuleDef m _)) imps stmts) = do
+typeCheck (Program mdl@(Located _ (ModuleDef m _)) imps stmts src) = do
    modify $ \st -> st { currentModule = m }
-   Program mdl imps <$> traverse (typeCheckStmt imps) stmts
+   (Program mdl imps <$> traverse (typeCheckStmt imps) stmts) <-- src
 
 typeCheckStmt :: [Located ImportDef] -> Stmt Resolved -> SemAnalyzer (Stmt Typed)
 typeCheckStmt imps (StmtFunc (FnImpl (Located implLoc (FuncImpl fnIdent pats expr)))) = do
@@ -766,6 +780,21 @@ resolve t = do
 
 bindVar :: Int -> Type -> SemAnalyzer ()
 bindVar n t = modify $ \st -> st { tySubst = M.insert n t (tySubst st) }
+
+zonkType :: M.Map Int Type -> Type -> Type
+zonkType s = go
+   where
+      go (TyVar n) = maybe (TyVar n) go (M.lookup n s)
+      go (TyApp a b) = TyApp (go a) (go b)
+      go (TyTuple xs) = TyTuple (map go xs)
+      go (TyFn args r) = TyFn (map go args) (go r)
+      go t = t
+
+zonkTyped :: M.Map Int Type -> Typed -> Typed
+zonkTyped s (TypedInfo ty res) = TypedInfo (zonkType s ty) res
+
+zonkProgram :: M.Map Int Type -> Program Typed -> Program Typed
+zonkProgram s = fmap (zonkTyped s)
 
 unify :: Location -> Type -> Type -> SemAnalyzer ()
 unify loc t1 t2 = do
