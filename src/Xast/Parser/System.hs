@@ -10,7 +10,7 @@ import Text.Megaparsec (between, sepBy1, (<|>), many, some, (<?>), MonadParsec (
 import Xast.Parser.Common
 import Xast.Parser.Ident (typeIdent)
 import Xast.Parser.Type (type')
-import Xast.Parser.Expr (stringLiteral, expr, pattern')
+import Xast.Parser.Expr (stringLiteral, expr, atomPattern')
 import Xast.AST
 import Xast.Parser.Modifier (sysModifier)
 
@@ -24,7 +24,6 @@ system = do
 systemDef :: Parser (Located SystemDef)
 systemDef = located $ do
    sysMods   <- many sysModifier
-   sysLabel <- (label <|> pure "default") <?> "system label"
    _        <- symbol "system"
    sysName  <- typeIdent
    sysEnts  <- many queriedEntity
@@ -40,9 +39,6 @@ queriedEntity :: Parser QueriedEntity
 queriedEntity = QueriedEntity <$> 
    between (symbol "#(") (symbol ")") (type' `sepBy1` symbol ",")
 
-label :: Parser Text
-label = symbol "@label" *> symbol "=" *> stringLiteral
-
 with :: Parser [WithType]
 with = symbol "with" *> (withType `sepBy1` symbol ",")
    where
@@ -57,7 +53,7 @@ systemImpl = located $ do
    _           <- symbol "system"
    sysImName   <- typeIdent
    sysImEnts   <- many entityPattern
-   sysImWith   <- optional $ symbol "with" *> some pattern'
+   sysImWith   <- optional $ symbol "with" *> some atomPattern'
    _           <- symbol "="
    sysImBody   <- expr
    _           <- endOfStmt
@@ -65,5 +61,5 @@ systemImpl = located $ do
    return SystemImpl {..}
 
 entityPattern :: Parser EntityPattern
-entityPattern = between (symbol "#(") (symbol ")") $ 
-   EntityPattern <$> some pattern'
+entityPattern = between (symbol "#(") (symbol ")") $
+   EntityPattern <$> some atomPattern'

@@ -436,7 +436,6 @@ instance Functor System where
 
 data SystemDef = SystemDef
    { sysMods   :: [Modifier]
-   , sysLabel  :: Text
    , sysName   :: Ident
    , sysEnts   :: [QueriedEntity]
    , sysRet    :: Type

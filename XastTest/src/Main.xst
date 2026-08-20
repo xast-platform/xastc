@@ -1,31 +1,90 @@
-module Main exports { computePosition }
+module Main exports { 
+    addVelocity, 
+    isOrigin, 
+    describe, 
+    renderOrigin, 
+    sumFirstTwo, 
+    swap, 
+    addFive, 
+    unbox,
+    moveRight,
+    boxedArea,
+}
 
 use Utils.Components *
+use Utils.Renderer *
 
-fn opAdd(Int, Int) -> Int;
-fn opDiv(Int, Int) -> Int;
-fn opPow(Int, Int) -> Int;
+extern fn opAdd(Int, Int) -> Int;
+extern fn opMul(Int, Int) -> Int;
+extern fn opEq(Int, Int) -> Bool;
 
-fn testImport () -> Int;
-fn testImport = 
-    let x = 12 and
-    let y = 32
-    in z;
+-- Record + positional constructor patterns, multi-clause function, record construction
+fn addVelocity(Pos, Velocity) -> Pos;
 
-fn computePosition(Pos, Velocity) -> Pos;
+fn addVelocity (Pos px py) (Velocity vx vy) =
+    Pos { x = px + vx, y = py + vy };
 
-fn computePosition (Pos px py) (Velocity vx vy) = 
-    Pos (px + vx) (py + vy);
+fn addVelocity pos (Velocity 0 0) =
+    pos;
 
-fn computePosition pos (Velocity vx vy) =
-    Pos {
-        x = pos.x + vx,
-        y = pos.y + vy
-    };
+-- if/then/else, comparison, var getter
+fn isOrigin(Pos) -> Bool;
+fn isOrigin (Pos px py) =
+    if px == 0 then True else False;
 
-fn abc(Int) -> Int;
-fn abc a = 
-    let b = 12 and
-    let c = 24 in
+-- match over a sum type
+fn describe(Shape) -> Int;
+fn describe shape =
+    match shape with
+        Circle r -> r,
+        Rectangle w h -> w + h;
 
-    a / b ** c;
+-- cross-module extern call, record construction as an argument
+fn renderOrigin(Renderer) -> Renderer;
+fn renderOrigin renderer =
+    drawCircle (Pos { x = 0, y = 0 }) renderer;
+
+-- fixed-length list pattern
+fn sumFirstTwo(List Int) -> Int;
+fn sumFirstTwo pair =
+    match pair with
+        [a, b] -> a + b,
+        _ -> 0;
+
+-- tuples
+fn swap((Int, Int)) -> (Int, Int);
+fn swap (a, b) = (b, a);
+
+-- lambda + closure over an outer var
+fn addFive(Int) -> Int;
+fn addFive n =
+    (.\x -> x + n) 5;
+
+-- generic type instantiation
+fn unbox(Box Int) -> Int;
+fn unbox (Box n) = n;
+
+fn boxedArea(Box Shape) -> Int;
+fn boxedArea box =
+    let Box shape = box in
+    let area =
+        match shape with
+            Circle r -> r * r,
+            Rectangle w h -> w * h
+    in
+    if area == 0 then 1 else area;
+
+-- record update (Haskell-style: base { field = expr })
+fn moveRight(Pos) -> Pos;
+fn moveRight pos =
+    pos { x = pos.x + 1 };
+
+system MoveSystem #(Pos, Velocity) -> Pos;
+
+system MoveSystem #(pos (Velocity vx vy)) =
+    Pos { x = pos.x + vx, y = pos.y + vy };
+
+system RenderSystem #(Pos) -> Pos with res: Renderer;
+
+system RenderSystem #(pos) with renderer =
+    pos;

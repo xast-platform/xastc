@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Xast.Parser.Headers where
 
-import Text.Megaparsec (sepBy1, between, (<|>), choice)
+import Text.Megaparsec (sepBy1, between, (<|>), choice, sepEndBy1)
 
 import Xast.Parser.Ident (typeIdent, fnIdent)
 import Xast.Parser.Common (Parser, symbol, located)
@@ -22,7 +22,7 @@ moduleDef = located $ do
 
 exportPayload :: Parser ExportPayload
 exportPayload = choice
-   [ ExpSelect <$> between (symbol "{") (symbol "}") ((typeIdent <|> fnIdent) `sepBy1` symbol ",")
+   [ ExpSelect <$> between (symbol "{") (symbol "}") ((typeIdent <|> fnIdent) `sepEndBy1` symbol ",")
    , ExpFull   <$ symbol "*"
    ]
 

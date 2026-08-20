@@ -56,6 +56,7 @@ emptyModuleInfo = ModuleInfo M.empty S.empty
 
 data SymbolInfo
    = SymbolType Location TypeSig
+   | SymbolTypeCtor Location TypeSig ConstructorId CtorSig
    | SymbolCtor Location ConstructorId CtorSig
    | SymbolFn Location FunctionId FuncSig
    | SymbolSystem Location SystemSig
@@ -64,8 +65,9 @@ data SymbolInfo
    deriving (Eq, Show)
    
 data CtorSig = CtorSig
-   { ctorSigOwner :: Ident 
-   , ctorSigGenereics :: [Ident] 
+   { ctorSigOwner :: Ident
+   , ctorSigGenereics :: [Ident]
+   , ctorSigFieldNames :: Maybe [Ident] -- `Just` field names when declared as a record, `Nothing` otherwise
    , ctorSigFields :: [Type]
    }
    deriving (Eq, Show)
@@ -78,16 +80,16 @@ data TypeSig = TypeSig
 
 symbolLoc :: SymbolInfo -> Location
 symbolLoc = \case
-   SymbolType loc _       -> loc
-   SymbolCtor loc _ _     -> loc
+   SymbolType loc _         -> loc
+   SymbolTypeCtor loc _ _ _ -> loc
+   SymbolCtor loc _ _       -> loc
    SymbolFn loc _ _       -> loc
    SymbolSystem loc _     -> loc
    SymbolExternFn loc _ _ -> loc
    SymbolExternType loc   -> loc
 
 data SystemSig = SystemSig
-   { sysSigLabel :: Text
-   , sysSigName :: Ident
+   { sysSigName :: Ident
    , sysSigEnts :: [QueriedEntity]
    , sysSigRet :: Type
    , sysSigWith :: Maybe [WithType]
@@ -116,7 +118,7 @@ externFuncSig :: ExternFunc -> FuncSig
 externFuncSig (ExternFunc _ tys rt) = FuncSig tys rt
 
 systemSig :: SystemDef -> SystemSig
-systemSig (SystemDef _ label name ents ret withs) =
-   SystemSig label name ents ret withs
+systemSig (SystemDef _ name ents ret withs) =
+   SystemSig name ents ret withs
 
 data SuggestedImports = SuggestedImports Ident [Module]

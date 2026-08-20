@@ -209,6 +209,48 @@ instance PrintError SemError where
 
       in printReportAt filename report
 
+   printError (SESystemArityMismatch loc ident expected actual) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ( "System `" <> show ident <> "` expects " <> show expected
+               <> " pattern(s) here, but got " <> show actual
+            )
+            [ (toPosition pos len filename, This "Wrong number of patterns") ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEUnknownField loc con fld) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Constructor " <> show (blue (show con)) <> " has no field: " <> show (blue (show fld)))
+            [ (toPosition pos len filename, This "Unknown field") ]
+            []
+
+      in printReportAt filename report
+
+   printError (SENotARecordType loc ty) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Cannot access fields on non-record type: " <> show ty)
+            [ (toPosition pos len filename, This "Not a record type") ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEInvalidTupleIndex loc ty idx) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Invalid tuple index " <> show idx <> " on type: " <> show ty)
+            [ (toPosition pos len filename, This "Invalid tuple index") ]
+            []
+
+      in printReportAt filename report
+
    printError (SEUndefinedAlias filename alias) =
       let report = errReport
             ("Undefined module alias: " <> show (blue (show alias)))

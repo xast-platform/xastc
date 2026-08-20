@@ -6,7 +6,7 @@ import Text.Megaparsec (between, sepBy, many)
 
 import Xast.Parser.Type (type')
 import Xast.Parser.Ident (fnIdent)
-import Xast.Parser.Expr (expr, pattern')
+import Xast.Parser.Expr (expr, atomPattern')
 import Xast.Parser.Common
 import Xast.AST
 import Xast.Parser.Modifier (fnModifier)
@@ -30,7 +30,7 @@ funcImpl :: Parser (Located (FuncImpl Parsed))
 funcImpl = located $ do
    _        <- symbol "fn"
    fnName   <- fnIdent
-   fnArgs   <- many pattern'
+   fnArgs   <- many atomPattern'
    _        <- symbol "="
    fnBody   <- expr
    _        <- endOfStmt

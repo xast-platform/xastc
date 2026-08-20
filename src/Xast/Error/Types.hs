@@ -48,6 +48,10 @@ data SemError
    | SENotAFunction Location Type
    | SECtorArityMismatch Location Ident Int Int
    | SEFnArityMismatch Location Ident Int Int
+   | SESystemArityMismatch Location Ident Int Int
+   | SEUnknownField Location Ident Ident
+   | SENotARecordType Location Type
+   | SEInvalidTupleIndex Location Type Int
    deriving Show
 
 data SemWarning

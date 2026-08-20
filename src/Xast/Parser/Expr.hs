@@ -15,10 +15,16 @@ import Xast.Parser.Common (Parser, lexeme, symbol, located)
 
 pattern' :: Parser Pattern
 pattern' = choice
+   [ try (PatCon <$> typeIdent <*> some atomPattern')
+   , atomPattern'
+   ]
+
+atomPattern' :: Parser Pattern
+atomPattern' = choice
    [ tupleOrParensPat
    , PatWildcard  <$ symbol "_"
    , PatVar       <$> varIdent
-   , PatCon       <$> typeIdent <*> many pattern'
+   , PatCon       <$> typeIdent <*> pure []
    , PatList      <$> between (symbol "[") (symbol "]") (pattern' `sepBy` symbol ",")
    , PatLit       <$> literal
    ]
@@ -46,10 +52,15 @@ atomExpr = do
       , ExpMatch ParsedInfo  <$> match'
       ]
    getters <- many (located (symbol "." *> varGetter))
-   pure $ foldl' applyGetter base getters
+   let based = foldl' applyGetter base getters
+   updates <- many (located recUpdateBlock)
+   pure $ foldl' applyRecUpdate based updates
    where
       applyGetter l@(Located (Location posL offL _) _) (Located (Location _ offR lenR) getter) =
          Located (Location posL offL ((offR + lenR) - offL)) (ExpVarGetter ParsedInfo l getter)
+
+      applyRecUpdate l@(Located (Location posL offL _) _) (Located (Location _ offR lenR) assigns) =
+         Located (Location posL offL ((offR + lenR) - offL)) (ExpRecUpdate ParsedInfo (RecUpdate l assigns))
 
 tupleOrParens :: Parser (Expr Parsed)
 tupleOrParens = between (symbol "(") (symbol ")") $ do
@@ -72,6 +83,9 @@ recConstruct = do
 
 recAssign :: Parser (RecAssign Parsed)
 recAssign = RecAssign <$> located varIdent <* symbol "=" <*> expr
+
+recUpdateBlock :: Parser [RecAssign Parsed]
+recUpdateBlock = between (symbol "{") (symbol "}") (recAssign `sepEndBy1` symbol ",")
 
 varGetter :: Parser Getter
 varGetter = choice

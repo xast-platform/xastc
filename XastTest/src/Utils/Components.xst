@@ -1,4 +1,4 @@
-module Utils.Components exports { Pos, Velocity, Player }
+module Utils.Components exports { Pos, Velocity, Player, Box, Bool, True, False, Shape, Circle, Rectangle }
 
 type Pos = Pos {
    x : Int,
@@ -9,4 +9,10 @@ type Velocity = Velocity Int Int;
 
 type Player = Player;
 
-type UnexportedType = UnexportedType;
+type Box a = Box a;
+
+type Bool = True | False;
+
+type Shape
+   = Circle Int
+   | Rectangle Int Int;

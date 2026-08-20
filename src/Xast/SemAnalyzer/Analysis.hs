@@ -5,7 +5,7 @@ module Xast.SemAnalyzer.Analysis where
 import Control.Monad.Except (ExceptT(..))
 import Control.Monad.State
 import Control.Monad (forM_, unless, when, foldM, zipWithM_, zipWithM, forM)
-import Data.Maybe (mapMaybe, fromJust)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe)
 import Data.List (sortBy)
 import Data.Foldable (foldl')
 import qualified Data.Set as S
@@ -20,7 +20,7 @@ import Data.Function ((&))
 import Xast.SemAnalyzer.Query
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
-import Xast.Utils.Generic (unreachableWith, todo__)
+import Xast.Utils.Generic (unreachableWith)
 
 -- #### FULL ANALYSIS ####
 
@@ -85,7 +85,7 @@ declareStmt = \case
    StmtExtern (ExtType et@(Located _ (ExternType ident _))) ->
       declareExternType ident et
 
-   StmtSystem (SysDef sd@(Located _(SystemDef _ _ ident _ _ _))) ->
+   StmtSystem (SysDef sd@(Located _(SystemDef _ ident _ _ _))) ->
       declareSystem ident sd
 
    _ -> return ()
@@ -123,19 +123,30 @@ declareFn ident (Located loc fd@(FuncDef _ fnIdent fnArgs _)) = do
 declareType :: Ident -> Located TypeDef -> SemAnalyzer ()
 declareType ident (Located loc (TypeDef _ _ generics ctors)) = do
    let ctorNames = S.fromList [ctorName c | Located _ c <- ctors]
-   declareSymbol ident (SymbolType loc (TypeSig ctorNames generics)) SETypeRedeclaration
+       typeSig = TypeSig ctorNames generics
+
+   case [c | Located _ c <- ctors, ctorName c == ident] of
+      [selfCtor] -> do
+         let (fieldNames, fieldTys) = payloadFields (ctorPayload selfCtor)
+         cid <- freshConstructorId
+         declareSymbol ident
+               (SymbolTypeCtor loc typeSig cid (CtorSig ident generics fieldNames fieldTys))
+               SETypeRedeclaration
+      _ ->
+         declareSymbol ident (SymbolType loc typeSig) SETypeRedeclaration
+
    forM_ ctors $ \(Located ctorLoc ctor) ->
       unless (ctorName ctor == ident) $ do
-         let fieldTys = payloadTypes (ctorPayload ctor)
+         let (fieldNames, fieldTys) = payloadFields (ctorPayload ctor)
          cid <- freshConstructorId
          declareSymbol (ctorName ctor)
-               (SymbolCtor ctorLoc cid (CtorSig ident generics fieldTys))
+               (SymbolCtor ctorLoc cid (CtorSig ident generics fieldNames fieldTys))
                SECtorRedeclaration
    where
-      payloadTypes = \case
-         PUnit -> []
-         (PTuple tys) -> tys
-         (PRecord fs) -> map fldType fs
+      payloadFields = \case
+         PUnit -> (Nothing, [])
+         (PTuple tys) -> (Nothing, tys)
+         (PRecord fs) -> (Just (map fldName fs), map fldType fs)
 
 declareExternFn :: Ident -> Located ExternFunc -> SemAnalyzer ()
 declareExternFn ident (Located loc ef) = do
@@ -465,10 +476,10 @@ resolveDefImplMatches stmts = go stmts stmts
 
          StmtSystem (SysImpl (Located impLoc (SystemImpl impIdent _ _ _))) ->
             let matching = flip mapMaybe allStmts $ \case
-                  StmtFunc (FnDef (Located defLoc (FuncDef _ defIdent _ _))) -> 
-                     if defIdent == impIdent then 
+                  StmtSystem (SysDef (Located defLoc (SystemDef _ defIdent _ _ _))) ->
+                     if defIdent == impIdent then
                         Just defLoc
-                     else 
+                     else
                         Nothing
                   _ -> Nothing
                 defCount = length matching
@@ -478,18 +489,18 @@ resolveDefImplMatches stmts = go stmts stmts
             else if defCount > 1 then do
                errSem (SEExtraSystemDef impLoc impIdent matching)
                go xs allStmts
-            else 
+            else
                go xs allStmts
 
-         StmtSystem (SysDef (Located defLoc (SystemDef _ _ defIdent _ _ _))) ->
+         StmtSystem (SysDef (Located defLoc (SystemDef _ defIdent _ _ _))) ->
             let matching = flip filter allStmts $ \case
-                  StmtFunc (FnImpl (Located _ (FuncImpl impIdent _ _))) -> impIdent == defIdent
+                  StmtSystem (SysImpl (Located _ (SystemImpl impIdent _ _ _))) -> impIdent == defIdent
                   _ -> False
                 count = length matching
             in if count == 0 then do
                errSem (SEMissingSystemImpls defLoc defIdent)
                go xs allStmts
-            else 
+            else
                go xs allStmts
 
          _ -> go xs allStmts
@@ -616,8 +627,12 @@ resolveExpr scope imps (Located loc expr) = case expr of
          pure $ RecAssign fld value'
       pure $ ExpRecConstruct (ResolvedInfo Nothing) (RecConstruct rcBind rcCon rcAssigns')
 
-   ExpRecUpdate _ (RecUpdate ruBase ruAssigns) ->
-      todo__ "Resolve rec update expr"
+   ExpRecUpdate _ (RecUpdate ruBase ruAssigns) -> do
+      ruBase' <- resolveExprAt scope imps ruBase
+      ruAssigns' <- forM ruAssigns $ \(RecAssign fld value) -> do
+         value' <- resolveExprAt scope imps value
+         pure $ RecAssign fld value'
+      pure $ ExpRecUpdate (ResolvedInfo Nothing) (RecUpdate ruBase' ruAssigns')
 
    ExpVarGetter _ baseExpr getter -> do
       baseExpr' <- resolveExprAt scope imps baseExpr
@@ -626,7 +641,9 @@ resolveExpr scope imps (Located loc expr) = case expr of
 -- #### Type checking ####
 
 typeCheck :: Program Resolved -> SemAnalyzer (Program Typed)
-typeCheck (Program mdl imps stmts) = Program mdl imps <$> traverse (typeCheckStmt imps) stmts
+typeCheck (Program mdl@(Located _ (ModuleDef m _)) imps stmts) = do
+   modify $ \st -> st { currentModule = m }
+   Program mdl imps <$> traverse (typeCheckStmt imps) stmts
 
 typeCheckStmt :: [Located ImportDef] -> Stmt Resolved -> SemAnalyzer (Stmt Typed)
 typeCheckStmt imps (StmtFunc (FnImpl (Located implLoc (FuncImpl fnIdent pats expr)))) = do
@@ -647,8 +664,36 @@ typeCheckStmt imps (StmtFunc (FnImpl (Located implLoc (FuncImpl fnIdent pats exp
 
    pure $ StmtFunc (FnImpl (Located implLoc (FuncImpl fnIdent pats expr')))
 
-typeCheckStmt _ (StmtSystem (SysImpl (Located implLoc (SystemImpl sysIdent entPats mWith body)))) =
-   todo__ "Type check system implementations"
+typeCheckStmt imps (StmtSystem (SysImpl (Located implLoc (SystemImpl sysIdent entPats mWith body)))) = do
+   (SystemSig _ sigEnts sigRet sigWith) <- fromJust <$> lookupCurrentSystem sysIdent
+
+   -- 1) match entity patterns and queried components count
+   unless (length entPats == length sigEnts) $
+      errSem (SESystemArityMismatch implLoc sysIdent (length sigEnts) (length entPats))
+
+   entVars <- forM (zip entPats sigEnts) $ \(EntityPattern ps, QueriedEntity tys) -> do
+      unless (length ps == length tys) $
+         errSem (SESystemArityMismatch implLoc sysIdent (length tys) (length ps))
+      zipWithM (inferPattern imps implLoc) tys ps
+
+   -- 2) match `with` patterns and `with` types count
+   withVarsList <- case (mWith, sigWith) of
+      (Nothing, _) -> pure []
+      (Just ps, Just wts) -> do
+         unless (length ps == length wts) $
+            errSem (SESystemArityMismatch implLoc sysIdent (length wts) (length ps))
+         zipWithM (inferPattern imps implLoc) (map withType wts) ps
+      (Just ps, Nothing) -> do
+         errSem (SESystemArityMismatch implLoc sysIdent 0 (length ps))
+         pure []
+
+   -- 3) withVars inferType of `body`
+   body' <- withVars (M.unions (concat entVars ++ withVarsList)) (inferType imps body)
+
+   -- 4) compare types
+   compareTypes implLoc sigRet (typeOf body')
+
+   pure $ StmtSystem (SysImpl (Located implLoc (SystemImpl sysIdent entPats mWith body')))
 
 typeCheckStmt _ (StmtFunc (FnDef def)) = pure $ StmtFunc (FnDef def)
 
@@ -657,6 +702,10 @@ typeCheckStmt _ (StmtSystem (SysDef def)) = pure $ StmtSystem (SysDef def)
 typeCheckStmt _ (StmtTypeDef td) = pure $ StmtTypeDef td
 
 typeCheckStmt _ (StmtExtern ext) = pure $ StmtExtern ext
+
+withType :: WithType -> Type
+withType (WithEvent ty) = ty
+withType (WithRes ty)   = ty
 
 freshTyVar :: SemAnalyzer Type
 freshTyVar = do
@@ -917,11 +966,96 @@ inferType imps (Located loc expr) = case expr of
       let ty = TyFn argTyVars' (typeOf body')
       pure $ Located loc $ ExpLambda (TypedInfo ty mRes) (Lambda args body')
 
-   ExpRecConstruct _ _ -> todo__ "Type check record construction"
+   ExpRecConstruct (ResolvedInfo mRes) (RecConstruct rcBind rcCon rcAssigns) -> do
+      sym <- case rcBind of
+         Nothing -> do
+            modCon <- lookupCurrentConstructor rcCon
+            impCon <- lookupUnqualifiedConstructor imps rcCon
+            pure (modCon <|> impCon)
+         Just alias -> lookupQualifiedConstructor imps alias rcCon
 
-   ExpRecUpdate _ _ -> todo__ "Type check record update"
+      (ty, rcAssigns') <- case sym of
+         Just s@(SymbolCtor _ _ (CtorSig _ _ mFieldNames _)) -> do
+            resultTy <- ctorType loc s
+            let (fieldTys, ctorResultTy) = case resultTy of
+                  TyFn args r -> (args, r)
+                  r           -> ([], r)
+                fieldTypeOf fld = lookup fld (zip (fromMaybe [] mFieldNames) fieldTys)
+            assigns' <- forM rcAssigns $ \(RecAssign fldName value) -> do
+               value' <- inferType imps value
+               case fieldTypeOf (lNode fldName) of
+                  Just expectedTy -> compareTypes loc expectedTy (typeOf value')
+                  Nothing         -> errSem (SEUnknownField loc rcCon (lNode fldName))
+               pure $ RecAssign fldName value'
+            pure (ctorResultTy, assigns')
 
-   ExpVarGetter _ _ _ -> todo__ "Type check var getter"
+         _ -> do
+            errSem (SEUndefinedCon loc rcCon)
+            assigns' <- forM rcAssigns $ \(RecAssign fldName value) -> do
+               value' <- inferType imps value
+               pure $ RecAssign fldName value'
+            pure (TyInvalid, assigns')
+
+      pure $ Located loc $ ExpRecConstruct (TypedInfo ty mRes) (RecConstruct rcBind rcCon rcAssigns')
+
+   ExpRecUpdate (ResolvedInfo mRes) (RecUpdate ruBase ruAssigns) -> do
+      ruBase' <- inferType imps ruBase
+      baseTy  <- resolve (typeOf ruBase')
+      fields  <- recordFieldsOf imps loc baseTy
+
+      ruAssigns' <- forM ruAssigns $ \(RecAssign fldName value) -> do
+         value' <- inferType imps value
+         case fields of
+            Just (con, fieldNames, fieldTys) ->
+               case lookup (lNode fldName) (zip fieldNames fieldTys) of
+                  Just expectedTy -> compareTypes loc expectedTy (typeOf value')
+                  Nothing         -> errSem (SEUnknownField loc con (lNode fldName))
+            Nothing -> errSem (SENotARecordType loc baseTy)
+         pure $ RecAssign fldName value'
+
+      pure $ Located loc $ ExpRecUpdate (TypedInfo baseTy mRes) (RecUpdate ruBase' ruAssigns')
+
+   ExpVarGetter (ResolvedInfo mRes) baseExpr getter -> do
+      baseExpr' <- inferType imps baseExpr
+      baseTy    <- resolve (typeOf baseExpr')
+      ty <- case getter of
+         GetField fld -> do
+            fields <- recordFieldsOf imps loc baseTy
+            case fields of
+               Just (con, fieldNames, fieldTys) ->
+                  case lookup fld (zip fieldNames fieldTys) of
+                     Just fldTy -> pure fldTy
+                     Nothing    -> errSem (SEUnknownField loc con fld) >> pure TyInvalid
+               Nothing -> errSem (SENotARecordType loc baseTy) >> pure TyInvalid
+
+         GetTupleField idx -> case baseTy of
+            TyTuple tys | idx >= 0 && idx < length tys -> pure (tys !! idx)
+            _ -> errSem (SEInvalidTupleIndex loc baseTy idx) >> pure TyInvalid
+
+      pure $ Located loc $ ExpVarGetter (TypedInfo ty mRes) baseExpr' getter
+
+recordFieldsOf :: [Located ImportDef] -> Location -> Type -> SemAnalyzer (Maybe (Ident, [Ident], [Type]))
+recordFieldsOf imps loc ty = case typeHead ty of
+   Nothing -> pure Nothing
+   Just conIdent -> do
+      modCon <- lookupCurrentConstructor conIdent
+      impCon <- lookupUnqualifiedConstructor imps conIdent
+      case modCon <|> impCon of
+         Just s@(SymbolCtor _ _ (CtorSig _ _ (Just fieldNames) _)) -> do
+            resultTy <- ctorType loc s
+            let (fieldTys, ctorResultTy) = case resultTy of
+                  TyFn args r -> (args, r)
+                  r           -> ([], r)
+            unify loc ctorResultTy ty
+            fieldTys' <- mapM resolve fieldTys
+            pure $ Just (conIdent, fieldNames, fieldTys')
+         _ -> pure Nothing
+
+typeHead :: Type -> Maybe Ident
+typeHead = \case
+   TyCon n   -> Just n
+   TyApp t _ -> typeHead t
+   _         -> Nothing
 
 typeLetBinds
    :: [Located ImportDef]
@@ -981,7 +1115,7 @@ inferPattern imps loc ty = \case
             unreachableWith $ "Invalid constructor symbol at " ++ show loc ++ ": " ++ show invalid
 
 ctorType :: Location -> SymbolInfo -> SemAnalyzer Type
-ctorType _ (SymbolCtor _ _ (CtorSig ownerIdent generics fieldTys)) = do
+ctorType _ (SymbolCtor _ _ (CtorSig ownerIdent generics _ fieldTys)) = do
    fresh <- mapM (const freshTyVar) generics
    let subst    = M.fromList (zip generics fresh)
        fields'  = map (substGnr subst) fieldTys

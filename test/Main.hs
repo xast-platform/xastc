@@ -1,4 +1,5 @@
 module Main (main) where
+   
 import Test.HUnit (runTestTT, Test (TestList, TestLabel), Counts (errors, failures))
 import qualified Parser
 import qualified SemAnalyzer

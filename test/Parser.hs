@@ -1361,7 +1361,6 @@ systemTests = TestLabel "Systems" $ TestList
             loc $
                SystemDef
                   []
-                  "default"
                   (Ident "Move")
                   []
                   (TyTuple [])
@@ -1374,7 +1373,6 @@ systemTests = TestLabel "Systems" $ TestList
             loc $
                SystemDef
                   []
-                  "default"
                   (Ident "Move")
                   [QueriedEntity
                      [TyCon $ Ident "Position"]]
@@ -1388,7 +1386,6 @@ systemTests = TestLabel "Systems" $ TestList
             loc $
                SystemDef
                   []
-                  "default"
                   (Ident "Move")
                   [QueriedEntity
                      [ TyCon $ Ident "Position"
@@ -1404,7 +1401,6 @@ systemTests = TestLabel "Systems" $ TestList
             loc $
                SystemDef
                   []
-                  "default"
                   (Ident "Move")
                   []
                   (TyTuple [])
@@ -1418,7 +1414,6 @@ systemTests = TestLabel "Systems" $ TestList
             loc $
                SystemDef
                   []
-                  "default"
                   (Ident "Move")
                   []
                   (TyTuple [])
@@ -1432,7 +1427,6 @@ systemTests = TestLabel "Systems" $ TestList
             loc $
                SystemDef
                   []
-                  "physics"
                   (Ident "Move")
                   []
                   (TyTuple [])
