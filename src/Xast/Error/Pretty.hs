@@ -241,6 +241,17 @@ instance PrintError SemError where
 
       in printReportAt filename report
 
+   printError (SEAmbiguousRecordAccess loc conIdent otherCtors) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          othersList = intercalate ", " (map show otherCtors)
+          report = errReport
+            ("Cannot access/update fields of " <> show (blue (show conIdent)) <> ": its type has other constructors too (" <> othersList <> ")")
+            [ (toPosition pos len filename, This "Ambiguous field access on a multi-constructor type") ]
+            [ Hint "Field getters and record update syntax only work when the record variant is the only constructor of its type. Pattern-match instead to pick out the fields for this variant." ]
+
+      in printReportAt filename report
+
    printError (SEInvalidTupleIndex loc ty idx) =
       let Location pos _ len = loc
           filename = sourceName pos

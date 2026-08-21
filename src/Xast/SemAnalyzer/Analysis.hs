@@ -6,7 +6,7 @@ import Control.Monad.Except (ExceptT(..))
 import Control.Monad.State
 import Control.Monad (forM_, unless, when, foldM, zipWithM_, zipWithM, forM)
 import Data.Maybe (mapMaybe, fromJust, fromMaybe)
-import Data.List (sortBy, intercalate, intersperse)
+import Data.List (sortBy, intersperse)
 import Data.Foldable (foldl')
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -1039,7 +1039,7 @@ inferType imps (Located loc expr) = case expr of
                case lookup (lNode fldName) (zip fieldNames fieldTys) of
                   Just expectedTy -> compareTypes loc expectedTy (typeOf value')
                   Nothing         -> errSem (SEUnknownField loc con (lNode fldName))
-            Nothing -> errSem (SENotARecordType loc baseTy)
+            Nothing -> pure ()
          pure $ RecAssign fldName value'
 
       pure $ Located loc $ ExpRecUpdate (TypedInfo baseTy mRes) (RecUpdate ruBase' ruAssigns')
@@ -1055,7 +1055,7 @@ inferType imps (Located loc expr) = case expr of
                   case lookup fld (zip fieldNames fieldTys) of
                      Just fldTy -> pure fldTy
                      Nothing    -> errSem (SEUnknownField loc con fld) >> pure TyInvalid
-               Nothing -> errSem (SENotARecordType loc baseTy) >> pure TyInvalid
+               Nothing -> pure TyInvalid  -- recordFieldsOf already reported why
 
          GetTupleField idx -> case baseTy of
             TyTuple tys | idx >= 0 && idx < length tys -> pure (tys !! idx)
@@ -1065,20 +1065,31 @@ inferType imps (Located loc expr) = case expr of
 
 recordFieldsOf :: [Located ImportDef] -> Location -> Type -> SemAnalyzer (Maybe (Ident, [Ident], [Type]))
 recordFieldsOf imps loc ty = case typeHead ty of
-   Nothing -> pure Nothing
+   Nothing -> do
+      errSem (SENotARecordType loc ty)
+      pure Nothing
    Just conIdent -> do
       modCon <- lookupCurrentConstructor conIdent
       impCon <- lookupUnqualifiedConstructor imps conIdent
       case modCon <|> impCon of
          Just s@(SymbolCtor _ _ (CtorSig _ _ (Just fieldNames) _)) -> do
-            resultTy <- ctorType loc s
-            let (fieldTys, ctorResultTy) = case resultTy of
-                  TyFn args r -> (args, r)
-                  r           -> ([], r)
-            unify loc ctorResultTy ty
-            fieldTys' <- mapM resolve fieldTys
-            pure $ Just (conIdent, fieldNames, fieldTys')
-         _ -> pure Nothing
+            modTy <- lookupCurrentConType conIdent
+            impTy <- lookupUnqualifiedConType imps conIdent
+            case modTy <|> impTy of
+               Just (SymbolType _ (TypeSig ctors _)) | S.size ctors > 1 -> do
+                  errSem (SEAmbiguousRecordAccess loc conIdent (S.toList (S.delete conIdent ctors)))
+                  pure Nothing
+               _ -> do
+                  resultTy <- ctorType loc s
+                  let (fieldTys, ctorResultTy) = case resultTy of
+                        TyFn args r -> (args, r)
+                        r           -> ([], r)
+                  unify loc ctorResultTy ty
+                  fieldTys' <- mapM resolve fieldTys
+                  pure $ Just (conIdent, fieldNames, fieldTys')
+         _ -> do
+            errSem (SENotARecordType loc ty)
+            pure Nothing
 
 typeHead :: Type -> Maybe Ident
 typeHead = \case

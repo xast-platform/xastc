@@ -10,9 +10,9 @@ import Xast.Error.Types
 
 type SemAnalyzer = 
    WriterT [SemReport]
-      ( ReaderT Env 
-         ( StateT 
-            SymTable 
+      ( ReaderT Env
+         ( StateT
+            SymTable
             Identity
          )
       )

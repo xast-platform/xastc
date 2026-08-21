@@ -106,17 +106,16 @@ data Resolution
    deriving (Eq, Show)
 
 data Expr a
-   = ExpVar a ModBind Ident                 -- add, a
-   | ExpCon a ModBind Ident                 -- Nothing, Just
+   = ExpVar a ModBind Ident                     -- add, a
+   | ExpCon a ModBind Ident                     -- Nothing, Just
    | ExpTuple a [Located (Expr a)]              -- (pos, Event (p, pos));
    | ExpList a [Located (Expr a)]               -- [a, 12, b, c]
-   | ExpLit a Literal                       -- "abc", 12, ()
+   | ExpLit a Literal                           -- "abc", 12, ()
    | ExpLambda a (Lambda a)                     -- .\x y -> x + y
    | ExpApp a (Located (Expr a)) (Located (Expr a)) -- Just 12, func a b
    | ExpLetIn a (LetIn a)                       -- let a = 1 and let b = 2 in ...
    | ExpMatch a (Match a)                       -- match EXPR of 
    | ExpIfThen a (IfThenElse a)                 -- if ... then ... else ...
-   -- Syntactic sugar (should be de-sugared after typecheck)
    | ExpRecConstruct a (RecConstruct a)         -- Point { x = 12, y = 34 }
    | ExpRecUpdate a (RecUpdate a)               -- value { field = 12, field2 = True }
    | ExpVarGetter a (Located (Expr a)) Getter   -- var.x, tuple.0

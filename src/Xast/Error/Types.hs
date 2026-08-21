@@ -51,6 +51,7 @@ data SemError
    | SESystemArityMismatch Location Ident Int Int
    | SEUnknownField Location Ident Ident
    | SENotARecordType Location Type
+   | SEAmbiguousRecordAccess Location Ident [Ident]
    | SEInvalidTupleIndex Location Type Int
    deriving Show
 

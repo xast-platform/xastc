@@ -36,7 +36,10 @@ library
         Xast.SemAnalyzer.Analysis,
         Xast.SemAnalyzer.Monad,
         Xast.SemAnalyzer.Query,
-        Xast.SemAnalyzer.Types,        
+        Xast.SemAnalyzer.Types,
+
+        Xast.Lowerer.Monad,
+        Xast.Lowerer.Types,
 
         Xast.Utils.List,
         Xast.Utils.Pretty,

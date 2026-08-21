@@ -3,14 +3,13 @@
 module Xast.Parser.System where
 
 import Control.Applicative (optional)
-import Data.Text (Text)
 import Data.Maybe (isJust)
-import Text.Megaparsec (between, sepBy1, (<|>), many, some, (<?>), MonadParsec (lookAhead), choice)
+import Text.Megaparsec (between, sepBy1, many, some, MonadParsec (lookAhead), choice)
 
 import Xast.Parser.Common
 import Xast.Parser.Ident (typeIdent)
 import Xast.Parser.Type (type')
-import Xast.Parser.Expr (stringLiteral, expr, atomPattern')
+import Xast.Parser.Expr (expr, atomPattern')
 import Xast.AST
 import Xast.Parser.Modifier (sysModifier)
 
