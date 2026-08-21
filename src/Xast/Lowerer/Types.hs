@@ -32,10 +32,10 @@ data IrInst = IrLet IrName Type IrRhs
 
 data IrRhs
    = IrLit Literal
-   | IrVar IrName                          -- atom reference (post-ANF, always a name)
+   | IrVar IrName                          -- atom reference
    | IrCall IrName [IrName]                -- direct call, incl. extern fns (opAdd, etc.)
    | IrCallClosure IrName [IrName]         -- call through a closure value
-   | IrMakeClosure IrName [IrName]         -- (lifted fn name, captured var names)
+   | IrMakeClosure IrName [IrName]         -- lifted fn name, captured var names
    | IrCtor Ident Int [IrName]             -- ctor name, tag index, field values
    | IrTuple [IrName]
    | IrFieldGet IrName Int                 -- tuple/record field access by index

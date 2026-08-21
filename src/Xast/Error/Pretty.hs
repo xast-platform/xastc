@@ -267,10 +267,181 @@ instance PrintError SemError where
             ("Undefined module alias: " <> show (blue (show alias)))
             []
             [Hint "Add `use Module as Alias` or use an existing alias"]
-      
+
       in printReportAt filename report
 
-   printError unimplemented = error $ "Unimplemented SA Error: " ++ show unimplemented
+   printError (SETypeRedeclaration ident oldLoc newLoc) =
+      redeclarationError "Type" ident oldLoc newLoc
+
+   printError (SEFnRedeclaration ident oldLoc newLoc) =
+      redeclarationError "Function" ident oldLoc newLoc
+
+   printError (SEExternFnRedeclaration ident oldLoc newLoc) =
+      redeclarationError "Extern function" ident oldLoc newLoc
+
+   printError (SEExternTypeRedeclaration ident oldLoc newLoc) =
+      redeclarationError "Extern type" ident oldLoc newLoc
+
+   printError (SESystemRedeclaration ident oldLoc newLoc) =
+      redeclarationError "System" ident oldLoc newLoc
+
+   printError (SEMissingFnDef loc ident) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Function `" <> show ident <> "` is implemented but never declared")
+            [(toPosition pos len filename, This "No matching function declaration found")]
+            [Hint "Add a function declaration for this implementation"]
+
+      in printReportAt filename report
+
+   printError (SEExtraFnDef loc ident others) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Function `" <> show ident <> "` has multiple implementations")
+            ( (toPosition pos len filename, This "Redundant implementation here")
+            : [ (toPosition p l filename, Where "Also implemented here") | Location p _ l <- others ]
+            )
+            []
+
+      in printReportAt filename report
+
+   printError (SEMissingFnImpls loc ident) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Function `" <> show ident <> "` is declared but never implemented")
+            [(toPosition pos len filename, This "Declared here but never implemented")]
+            [Hint "Add an implementation for this function"]
+
+      in printReportAt filename report
+
+   printError (SEMissingSystemDef loc ident) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("System `" <> show ident <> "` is implemented but never declared")
+            [(toPosition pos len filename, This "No matching system declaration found")]
+            [Hint "Add a system declaration for this implementation"]
+
+      in printReportAt filename report
+
+   printError (SEExtraSystemDef loc ident others) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("System `" <> show ident <> "` has multiple implementations")
+            ( (toPosition pos len filename, This "Redundant implementation here")
+            : [ (toPosition p l filename, Where "Also implemented here") | Location p _ l <- others ]
+            )
+            []
+
+      in printReportAt filename report
+
+   printError (SEMissingSystemImpls loc ident) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("System `" <> show ident <> "` is declared but never implemented")
+            [(toPosition pos len filename, This "Declared here but never implemented")]
+            [Hint "Add an implementation for this system"]
+
+      in printReportAt filename report
+
+   printError (SETypeError loc expected actual) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ( "Type mismatch: expected `" <> show (green (typename expected))
+               <> "`, but got `" <> show (red (typename actual)) <> "`"
+            )
+            [(toPosition pos len filename, This "This expression has the wrong type")]
+            []
+
+      in printReportAt filename report
+
+   printError (SEListElementTypeMismatch locA tyA locB tyB) =
+      let Location posA _ lenA = locA
+          Location posB _ lenB = locB
+          filename = sourceName posA
+          report = errReport
+            "List elements have mismatched types"
+            [ (toPosition posA lenA filename, Where ("Previous element has type `" <> typename tyA <> "`"))
+            , (toPosition posB lenB filename, This ("This element has type `" <> typename tyB <> "`, expected `" <> typename tyA <> "`"))
+            ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEThenElseTypeMismatch locThen tyThen locElse tyElse) =
+      let Location posThen _ lenThen = locThen
+          Location posElse _ lenElse = locElse
+          filename = sourceName posThen
+          report = errReport
+            "The branches of this `if` have different types"
+            [ (toPosition posThen lenThen filename, Where ("The `then` branch has type `" <> typename tyThen <> "`"))
+            , (toPosition posElse lenElse filename, This ("The `else` branch has type `" <> typename tyElse <> "`, expected `" <> typename tyThen <> "`"))
+            ]
+            []
+
+      in printReportAt filename report
+
+   printError (SEInfiniteType loc tyVar ty) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ( "Cannot construct infinite type: t" <> show tyVar <> " ~ " <> typename ty )
+            [(toPosition pos len filename, This "Infinite type detected here")]
+            [Hint "Check for a self-referencing definition"]
+
+      in printReportAt filename report
+
+   printError (SETooManyArgs loc ty) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Too many arguments applied to a value of type `" <> typename ty <> "`")
+            [(toPosition pos len filename, This "Extra argument(s) here")]
+            []
+
+      in printReportAt filename report
+
+   printError (SENotAFunction loc ty) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ("Cannot apply arguments to a non-function value of type `" <> typename ty <> "`")
+            [(toPosition pos len filename, This "This value is not a function")]
+            []
+
+      in printReportAt filename report
+
+   printError (SECtorArityMismatch loc ident expected actual) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ( "Constructor `" <> show ident <> "` expects " <> show expected
+               <> " argument(s), but got " <> show actual
+            )
+            [(toPosition pos len filename, This "Called with the wrong number of arguments")]
+            []
+
+      in printReportAt filename report
+
+redeclarationError :: String -> Ident -> Location -> Location -> IO ()
+redeclarationError kind ident oldLoc newLoc =
+   let Location posOld _ lenOld = oldLoc
+       Location posNew _ lenNew = newLoc
+       filename = sourceName posNew
+       report = errReport
+         (kind <> " redeclared: " <> show (blue (show ident)))
+         [ (toPosition posOld lenOld filename, Where "Previous declaration here")
+         , (toPosition posNew lenNew filename, This "Redeclared here")
+         ]
+         []
+
+   in printReportAt filename report
 
 printWarnings :: [SemWarning] -> IO ()
 printWarnings warns = forM_ warns printWarning
@@ -322,7 +493,11 @@ printWarning (SWFunctionGayness (Location pos _ len) ident args ) =
 
    in printReportAt filename report
 
-printWarning _ = undefined
+printWarning (SWUnusedImport module_) =
+   putStrLn $ show (bold (yellow "warning: ")) <> "Unused import: " <> highlightModule module_
+
+printWarning (SWDeadCode ident) =
+   putStrLn $ show (bold (yellow "warning: ")) <> "Unused declaration: " <> show (blue (show ident))
 
 highlightModule :: Module -> String
 highlightModule = show . blue . show
