@@ -355,23 +355,25 @@ decimalLiteral = lexeme L.decimal
 
 intLiteral :: Parser IntLiteral
 intLiteral = lexeme $ do
-   value :: Integer <- choice
-      [ string' "0x" *> L.hexadecimal
-      , string' "0b" *> L.binary
-      , string' "0o" *> L.octal
-      , L.decimal
+   (isHex, value :: Integer) <- choice
+      [ (False,) <$> try (string "0b" *> L.binary)
+      , (True,)  <$> (string "0x" *> L.hexadecimal)
+      , (False,) <$> (string "0o" *> L.octal)
+      , (False,) <$> L.decimal
       ]
 
+   let sep = if isHex then "_" else mempty
+
    kind <- choice
-      [ USize  <$ string' "uz"
-      , ULong  <$ string' "ul"
-      , UShort <$ string' "us"
-      , UByte  <$ string' "ub"
-      , UInt   <$ string' "u" 
-      , Size   <$ string' "z" 
-      , Long   <$ string' "l" 
-      , Short  <$ string' "s" 
-      , Byte   <$ string' "b" 
+      [ USize  <$ string' (sep <> "uz")
+      , ULong  <$ string' (sep <> "ul")
+      , UShort <$ string' (sep <> "us")
+      , UByte  <$ string' (sep <> "ub")
+      , UInt   <$ string' (sep <> "u")
+      , Size   <$ string' (sep <> "z")
+      , Long   <$ string' (sep <> "l")
+      , Short  <$ string' (sep <> "s")
+      , Byte   <$ string' (sep <> "b")
       , pure Int
       ]
 

@@ -6,9 +6,6 @@ extern type Long;
 extern fn opAdd(a, a) -> a;
 extern fn opNeg(a) -> a;
 
-fn x() -> Byte;
-fn x = -129b;
-
 @Mode(Strict)
 system Increment #(Long) -> Long;
 system Increment other = other + 1L;
