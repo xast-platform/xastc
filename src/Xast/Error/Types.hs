@@ -41,6 +41,7 @@ data SemError
    | SEExtraSystemDef Location Ident [Location]
    | SEMissingSystemImpls Location Ident
    -- Type checking
+   | SEIntegerOutOfBounds Location IntKind Integer (Integer, Integer)
    | SETypeError Location Type Type
    | SEListElementTypeMismatch Location Type Location Type
    | SEThenElseTypeMismatch Location Type Location Type

@@ -24,6 +24,8 @@ import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
 import Xast.Utils.Generic (unreachableWith, (<--))
 import qualified Data.Text as T
+import Xast.Utils.Compiler (Target (Target32, Target64))
+import Control.Monad.RWS (asks)
 
 -- #### FULL ANALYSIS ####
 
@@ -32,9 +34,10 @@ fullAnalysis
    => ([SemWarning] -> m ())
    -> (FilePath -> String -> m ())
    -> [Program Parsed]
+   -> Target
    -> ExceptT [SemError] m AnalysisResult
-fullAnalysis reportWarnings saveFile progs = do
-   let env = emptyEnv
+fullAnalysis reportWarnings saveFile progs target = do
+   let env = emptyEnv target
        st0 = emptySymTable
 
    (_, st1, warns1) <- ExceptT $ pure $ runPhase env st0 (forM progs declareStmts)
@@ -769,6 +772,64 @@ resolveExpr scope imps expr = case expr of
 
 -- #### Type checking ####
 
+intBounds :: IntKind -> Target -> (Integer, Integer)
+intBounds Byte _   = (-128, 127)
+intBounds UByte _  = (0, 255)
+intBounds Short _  = (-32768, 32767)
+intBounds UShort _ = (0, 65535)
+intBounds Int _    = (-2147483648, 2147483647)
+intBounds UInt _   = (0, 4294967295)
+intBounds Long _   = (-9223372036854775808, 9223372036854775807)
+intBounds ULong _  = (0, 18446744073709551615)
+intBounds Size  t@Target32 = intBounds Int t
+intBounds USize t@Target32 = intBounds UInt t
+intBounds Size  t@Target64 = intBounds Long t
+intBounds USize t@Target64 = intBounds ULong t
+
+checkIntegerBounds :: Expr Resolved -> SemAnalyzer ()
+checkIntegerBounds = \case
+   ExpLit res (LitInt lit) -> checkIntegerLiteralBounds lit res.location
+
+   ExpApp res
+      (ExpVar _ _ (Ident "opNeg"))
+      (ExpLit _ (LitInt (IntLiteral kind value))) -> 
+         checkIntegerLiteralBounds 
+            (IntLiteral kind (negate value)) 
+            res.location
+   ExpApp _ op opnd -> 
+      checkIntegerBounds op >> 
+      checkIntegerBounds opnd
+
+   ExpLit {} -> pure ()
+   ExpVar {} -> pure ()
+   ExpCon {} -> pure ()
+   ExpTuple _ xs -> forM_ xs checkIntegerBounds
+   ExpList _ xs -> forM_ xs checkIntegerBounds
+   ExpLambda _ lambda -> checkIntegerBounds lambda.body
+   ExpLetIn _ letIn -> 
+      checkIntegerBounds letIn.bindExpr >> 
+      forM_ letIn.bindings (\bind -> checkIntegerBounds bind.value)
+   ExpMatch _ match -> 
+      checkIntegerBounds match.baseExpr >> 
+      forM_ match.matches (\(MatchWing _ expr) -> checkIntegerBounds expr)
+   ExpIfThen _ ite ->
+      checkIntegerBounds ite.ifExpr >>
+      checkIntegerBounds ite.thenExpr >>
+      checkIntegerBounds ite.elseExpr
+   ExpRecConstruct _ recCon -> forM_ recCon.assigns $ \(RecAssign _ expr) -> checkIntegerBounds expr
+   ExpRecUpdate _ recUpd -> 
+      checkIntegerBounds recUpd.base >>
+      forM_ recUpd.assigns (\(RecAssign _ expr) -> checkIntegerBounds expr)
+   ExpVarGetter _ expr _ -> checkIntegerBounds expr
+
+checkIntegerLiteralBounds :: IntLiteral -> Location -> SemAnalyzer ()
+checkIntegerLiteralBounds lit loc = do
+   target <- asks (.currentTarget)
+   let bounds@(low, high) = intBounds lit.kind target
+
+   unless (lit.value >= low && lit.value <= high) $
+      errSem (SEIntegerOutOfBounds loc lit.kind lit.value bounds)
+
 typeCheck :: Program Resolved -> SemAnalyzer (Program Typed)
 typeCheck (Program mdl@(ModuleDef _ m _) imps stmts src) = do
    modify $ \st -> st { currentModule = m }
@@ -777,6 +838,9 @@ typeCheck (Program mdl@(ModuleDef _ m _) imps stmts src) = do
 typeCheckStmt :: [Located ImportDef] -> Stmt Resolved -> SemAnalyzer (Stmt Typed)
 typeCheckStmt imps (StmtFunc (FnImpl (FuncImpl implLoc fnIdent pats expr))) = do
    (FuncSig argTypes retType) <- fromJust <$> lookupCurrentFunction fnIdent
+
+   -- 0) Check expressions integer bounds
+   checkIntegerBounds expr
 
    -- 1) match patterns and args count
    unless (length pats == length argTypes) $
@@ -797,6 +861,8 @@ typeCheckStmt imps (StmtFunc (FnImpl (FuncImpl implLoc fnIdent pats expr))) = do
 
 typeCheckStmt imps (StmtSystem (SysImpl (SystemImpl implLoc sysIdent entPats mWith body))) = do
    (SystemSig _ sigEnts sigRet sigWith) <- fromJust <$> lookupCurrentSystem sysIdent
+   -- 0) Check expressions integer bounds
+   checkIntegerBounds body
 
    -- 1) match entity patterns and queried components count
    unless (length entPats == length sigEnts) $
@@ -1351,8 +1417,9 @@ isSemError _            = False
 literalType :: Literal -> SemAnalyzer Type
 literalType (LitString _) = pure $ TyCon (Ident "String")
 literalType (LitChar _) = pure $ TyCon (Ident "Char")
-literalType (LitInt _) = pure $ TyCon (Ident "Int")
+literalType (LitInt lit) = pure $ TyCon (Ident (T.pack (show lit.kind)))
 literalType (LitFloat _) = pure $ TyCon (Ident "Float")
+literalType (LitDouble _) = pure $ TyCon (Ident "Double")
 literalType (LitTuple xs) = TyTuple <$> mapM (literalType . (.node)) xs
 literalType (LitList []) = genericList
 literalType (LitList (x:xs)) = do

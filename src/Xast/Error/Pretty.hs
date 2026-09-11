@@ -438,6 +438,22 @@ instance PrintError SemError where
             []
 
       in printReportAt filename report
+   
+   printError (SEIntegerOutOfBounds loc kind value (low, high)) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          report = errReport
+            ( "`" <> show kind <> "` integer literal value `" <> show value <> "` is out of bounds " )
+            [ ( toPosition pos len filename
+             , This 
+               ( "This value is of type `" <> show kind <> "` and its bounds are "
+               <> show low <> ".." <> show high
+               )
+              )
+            ]
+            []
+
+      in printReportAt filename report
 
 redeclarationError :: String -> Ident -> Location -> Location -> IO ()
 redeclarationError kind ident oldLoc newLoc =

@@ -1,24 +1,19 @@
 module Test exports *
 
 extern type Int;
-extern fn opAdd(Int, Int) -> Int;
+extern type Byte;
+extern type Long;
+extern fn opAdd(a, a) -> a;
+extern fn opNeg(a) -> a;
+
+fn x() -> Byte;
+fn x = -129b;
 
 @Mode(Strict)
-system Hello #(Int) -> Int;
-system Hello 100   = 0;
-system Hello other = other + 1;
+system Increment #(Long) -> Long;
+system Increment other = other + 1L;
 
--- void Test_Hello(ecs_iter* it) {
---     int32_t* _b0 = ecs_field(it, int32_t, 0);
---     if (_b0 == 100) {
---         {
---             _b0 = 0;
---         }
---     } else {
---         {
---             int32_t t0 = opAdd(_b0, 1);
---             _b0 = t0;
---         }
---     }
---     return;
--- }
+@Mode(Strict)
+system Clamp0To100 #(Int) -> Int;
+system Clamp0To100 100   = 0;
+system Clamp0To100 other = other + 1;

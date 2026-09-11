@@ -5,7 +5,7 @@ module Xast.Parser.Expr where
 import Control.Monad.Combinators.Expr
 import Data.Text (Text, pack)
 import Data.List (foldl', foldl1')
-import Text.Megaparsec.Char (char, string)
+import Text.Megaparsec.Char (char, string, char', string')
 import Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer as L
 
@@ -91,7 +91,7 @@ recUpdateBlock = between (symbol "{") (symbol "}") (recAssign `sepEndBy1` symbol
 
 varGetter :: Parser Getter
 varGetter = choice
-   [ GetTupleField <$> intLiteral
+   [ GetTupleField <$> decimalLiteral
    , GetField      <$> varIdent
    ]
 
@@ -215,7 +215,7 @@ binOp opLoc op a b =
 table :: [[Operator Parser (Expr Parsed)]]
 table =
    [  [ Prefix (unaryDirect OpNot)
-      , Prefix (unary OpNeg)
+      , Prefix (unaryDirect OpNeg)
       ]
 
    ,  [ InfixR (binary OpPow) ]
@@ -281,14 +281,6 @@ binaryGuarded op forbidden = do
    let opLoc = Location pos off (opLen op)
    pure (binOp opLoc op)
 
-unary :: BuiltinOp -> Parser (Expr Parsed -> Expr Parsed)
-unary op = do
-   pos <- getSourcePos
-   off <- getOffset
-   _ <- symbol (opToken op)
-   let opLoc = Location pos off (opLen op)
-   pure $ \x -> binOp opLoc op (ExpLit (ParsedInfo opLoc) (LitInt 0)) x
-
 unaryDirect :: BuiltinOp -> Parser (Expr Parsed -> Expr Parsed)
 unaryDirect op = do
    pos <- getSourcePos
@@ -345,6 +337,7 @@ literal = choice
    , LitString <$> stringLiteral
    , LitChar   <$> charLiteral
    , LitFloat  <$> try floatLiteral
+   , LitDouble <$> try doubleLiteral
    , LitInt    <$> intLiteral
    , LitList   <$> between (symbol "[") (symbol "]") (located literal `sepBy` symbol ",")
    ]
@@ -357,11 +350,38 @@ tupleOrParensLit = between (symbol "(") (symbol ")") $ do
       [t] -> pure t.node
       manyT -> pure (LitTuple manyT)
 
-floatLiteral :: Parser Float
-floatLiteral = lexeme L.float
+decimalLiteral :: Parser Int
+decimalLiteral = lexeme L.decimal
 
-intLiteral :: Parser Int
-intLiteral = lexeme L.decimal
+intLiteral :: Parser IntLiteral
+intLiteral = lexeme $ do
+   value :: Integer <- choice
+      [ string' "0x" *> L.hexadecimal
+      , string' "0b" *> L.binary
+      , string' "0o" *> L.octal
+      , L.decimal
+      ]
+
+   kind <- choice
+      [ USize  <$ string' "uz"
+      , ULong  <$ string' "ul"
+      , UShort <$ string' "us"
+      , UByte  <$ string' "ub"
+      , UInt   <$ string' "u" 
+      , Size   <$ string' "z" 
+      , Long   <$ string' "l" 
+      , Short  <$ string' "s" 
+      , Byte   <$ string' "b" 
+      , pure Int
+      ]
+
+   return IntLiteral {..}
+
+doubleLiteral :: Parser Double
+doubleLiteral = lexeme L.float
+
+floatLiteral :: Parser Float
+floatLiteral = lexeme (L.float <* char' 'f')
 
 charLiteral :: Parser Char
 charLiteral = lexeme $ between (char '\'') (char '\'') L.charLiteral

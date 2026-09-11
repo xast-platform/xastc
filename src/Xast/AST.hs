@@ -263,12 +263,32 @@ data Let a = Let
    deriving (Eq, Show, Functor, Foldable, Traversable)
 
 data Literal
-   = LitString Text
-   | LitChar Char
-   | LitInt Int
+   = LitInt IntLiteral
    | LitFloat Float
+   | LitDouble Double
+   | LitString Text
+   | LitChar Char
    | LitList [Located Literal]
    | LitTuple [Located Literal]
+   deriving (Eq, Show)
+
+data IntLiteral = IntLiteral
+   { kind :: IntKind
+   , value :: Integer
+   }
+   deriving (Eq, Show)
+
+data IntKind
+   = Size
+   | Long
+   | Int
+   | Short
+   | Byte
+   | USize
+   | ULong
+   | UInt
+   | UShort
+   | UByte
    deriving (Eq, Show)
 
 data Extern = ExtFunc ExternFunc | ExtType ExternType

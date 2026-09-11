@@ -22,6 +22,7 @@ import Control.Monad.RWS (MonadTrans(lift))
 import Xast.Lowerer.Pass (lowerPrograms)
 import Xast.Codegen.C.Pretty (debugPrograms)
 import Xast.Codegen.C.Pass (codegen)
+import Xast.Utils.Compiler (Target(Target64))
 
 runCompile :: Maybe FilePath -> IO ()
 runCompile dir = runCompile_ dir >>= \case
@@ -75,8 +76,12 @@ runCompile_ dir = runExceptT $ do
    unless (null errors) $
       throwError errors
 
+   -- Get compile target
+   -- FIXME: Target64 only
+   let target = Target64
+
    -- Semantic analysis
-   semResult <- runExceptT $ fullAnalysis  (lift . printWarnings) (\path content -> liftIO $ writeFile path content) programs
+   semResult <- runExceptT $ fullAnalysis  (lift . printWarnings) (\path content -> liftIO $ writeFile path content) programs target
    (warnings, progsAnalyzed) <- case semResult of
       Left errs -> throwError (XastSemAnalyzeError <$> errs)
       Right res -> return (res.warningsCount, res.progs)

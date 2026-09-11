@@ -5,6 +5,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 
 import Xast.AST
+import Xast.Utils.Compiler (Target)
 
 data AnalysisResult = AnalysisResult
    { warningsCount :: Int
@@ -13,12 +14,13 @@ data AnalysisResult = AnalysisResult
 
 data Env = Env
    { vars      :: M.Map Ident VarInfo
-   , functions :: M.Map Ident FuncSig 
+   , functions :: M.Map Ident FuncSig
    , systems   :: M.Map Ident SystemSig
    , allowedIntrinsics :: [Ident]
+   , currentTarget :: Target
    }
 
-emptyEnv :: Env
+emptyEnv :: Target -> Env
 emptyEnv = Env M.empty M.empty M.empty allowedIntrinsics
 
 data SymTable = SymTable
@@ -68,7 +70,7 @@ data SymbolInfo
    | SymbolExternFn Location ExternId FuncSig
    | SymbolExternType Location
    deriving (Eq, Show)
-   
+
 data CtorSig = CtorSig
    { owner        :: Ident
    , generics     :: [Ident]

@@ -55,7 +55,7 @@ data CType
 
 data CExpr
    = CVar Text
-   | CIntLit Int
+   | CIntLit Integer
    | CFloatLit Double
    | CInvoke CExpr [CArg]
    | CBinary CBinOp CExpr CExpr

@@ -45,7 +45,7 @@ extern fn opAnd (Bool, Bool) -> Bool;
 extern fn opOr (Bool, Bool) -> Bool;
 
 @Intrinsic
-extern fn opNot (Bool, Bool) -> Bool;
+extern fn opNot (Bool) -> Bool;
 
 @Intrinsic
 extern fn opPipe (a, fn(a) -> b) -> b;
@@ -54,7 +54,7 @@ extern fn opPipe (a, fn(a) -> b) -> b;
 extern fn opConcat (concatenative, concatenative) -> concatenative;
 
 @Intrinsic
-extern fn opNeg (number, number) -> number;
+extern fn opNeg (number) -> number;
 
 @Intrinsic
 extern fn opBitwiseAnd (number, number) -> number;

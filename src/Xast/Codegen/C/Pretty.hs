@@ -24,8 +24,8 @@ prettyProgram prog =
    foldMap prettyDecl prog.declarations
 
 prettyDecl :: CDecl -> Doc ann
-prettyDecl (CFunc func) = prettyFunction func
-prettyDecl (CGlob glob) = prettyGlobal glob
+prettyDecl (CFunc func) = prettyFunction func <> hardline
+prettyDecl (CGlob glob) = prettyGlobal glob <> hardline
 
 prettyFunction :: CFunction -> Doc ann
 prettyFunction func = 

@@ -9,7 +9,7 @@ import Xast.Codegen.C.Monad (CCodegen, runCodegen)
 import Control.Monad (forM)
 import Control.Monad.Identity (Identity(runIdentity))
 import Xast.Utils.Generic (todo__)
-import Xast.AST (moduleToPath, Literal(..), Type(..), Ident(..), typename)
+import Xast.AST (moduleToPath, IntLiteral(..), Literal(..), Type(..), Ident(..), typename)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (fromMaybe)
@@ -37,7 +37,7 @@ codegenFn = todo__ "codegen pure functions"
 codegenSystem :: KirSystem -> CCodegen CFunction
 codegenSystem sys = do
    let ty = CVoid
-   let (KirName name) = sys.name
+   let KirName name = sys.name
    let args = [CFuncArg
          { ty = CPointer (CStruct "ecs_iter")
          , name = "it"
@@ -59,7 +59,7 @@ declareBinding n binding =
          CInvoke (CVar "ecs_field")
             [ CExprArg (CVar "it")
             , CTypeArg bindingType
-            , CExprArg (CIntLit n)
+            , CExprArg (CIntLit (toInteger n))
             ]
       )
 
@@ -118,12 +118,13 @@ valueToExpr (KirVar (KirName n)) = CVar n
 valueToExpr (KirBindingRef bid)  = CUnary Deref (CVar (bindingName bid))
 
 literalToExpr :: Literal -> CExpr
-literalToExpr (LitInt n)   = CIntLit n
+literalToExpr (LitInt n)   = CIntLit n.value
 literalToExpr (LitFloat f) = CFloatLit (realToFrac f)
 literalToExpr lit          = todo__ ("no C representation for literal " ++ show lit)
 
 typeToCType :: Type -> CType
 typeToCType (TyCon (Ident "Int"))   = CInt
 typeToCType (TyCon (Ident "Float")) = CFloat
+typeToCType (TyCon (Ident "Long")) = CLong
 typeToCType (TyCon (Ident "Bool"))  = CBool
 typeToCType ty = todo__ ("no C representation for type " ++ typename ty)
