@@ -295,6 +295,12 @@ instance PrintError SemError where
    printError (SESystemRedeclaration ident oldLoc newLoc) =
       redeclarationError "System" ident oldLoc newLoc
 
+   printError (SEDuplicateBinding ident oldLoc newLoc) =
+      redeclarationError "Binding" ident oldLoc newLoc
+
+   printError (SEShadowedBinding ident outerLoc newLoc) =
+      shadowingError ident outerLoc newLoc
+
    printError (SEMissingFnDef loc ident) =
       let Location pos _ len = loc
           filename = sourceName pos
@@ -464,6 +470,20 @@ redeclarationError kind ident oldLoc newLoc =
          (kind <> " redeclared: " <> show (blue (show ident)))
          [ (toPosition posOld lenOld filename, Where "Previous declaration here")
          , (toPosition posNew lenNew filename, This "Redeclared here")
+         ]
+         []
+
+   in printReportAt filename report
+
+shadowingError :: Ident -> Location -> Location -> IO ()
+shadowingError ident outerLoc newLoc =
+   let Location posOld _ lenOld = outerLoc
+       Location posNew _ lenNew = newLoc
+       filename = sourceName posNew
+       report = errReport
+         ("Shadowing is not allowed: " <> show (blue (show ident)))
+         [ (toPosition posOld lenOld filename, Where "Already bound here")
+         , (toPosition posNew lenNew filename, This "Cannot shadow it here")
          ]
          []
 

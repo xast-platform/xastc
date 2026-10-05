@@ -14,3 +14,9 @@ system Increment other = other + 1L;
 system Clamp0To100 #(Int) -> Int;
 system Clamp0To100 100   = 0;
 system Clamp0To100 other = other + 1;
+
+fn double(Int) -> Int;
+fn double x =
+    let d = x + x,
+    let double = d + 0
+    in d;

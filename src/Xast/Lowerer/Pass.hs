@@ -2,10 +2,10 @@
 module Xast.Lowerer.Pass where
 
 import Xast.AST
-import Xast.Lowerer.Monad (Lowerer, freshKirName, runLowerer)
+import Xast.Lowerer.Monad (Lowerer, freshKirName, freshKirLocalId, runLowerer)
 import Xast.Lowerer.Types
 import Control.Monad (forM, when)
-import Xast.Utils.Generic ((<--), todo__)
+import Xast.Utils.Generic (todo__)
 import Data.Maybe (isJust, fromJust)
 import qualified Data.Map as M
 import Control.Monad.Identity (Identity(runIdentity))
@@ -20,11 +20,12 @@ lowerPrograms progs =
 lowerProgram :: Program Desugared -> Lowerer Kira
 lowerProgram prog = do
    let systemImpls = [x | StmtSystem (SysImpl x) <- prog.stmts]
+   let funcImpls   = [x | StmtFunc (FnImpl x) <- prog.stmts]
 
-   Kira
-      prog.moduleDef.name
-      <$> forM systemImpls (lowerSystem prog.moduleDef.name)
-      <-- []
+   systems   <- forM systemImpls (lowerSystem prog.moduleDef.name)
+   functions <- forM funcImpls (lowerFunction prog.moduleDef.name)
+
+   pure (Kira prog.moduleDef.name systems functions)
 
 lowerSystem :: Module -> SystemImpl Desugared -> Lowerer KirSystem
 lowerSystem module' impl = do
@@ -49,32 +50,61 @@ lowerSystem module' impl = do
          , Just (ResLocal lid) <- [(patAnnotation pat).res]
          ]
 
-   target <- case [bid | (bid, b) <- bs, b.bindAccess == AccessWrite] of
-      [bid] -> pure bid
-      _     -> todo__ "a system must write exactly one binding for now"
+   (target, targetTy) <- case [(bid, b.bindType) | (bid, b) <- bs, b.bindAccess == AccessWrite] of
+      [pair] -> pure pair
+      _      -> todo__ "a system must write exactly one binding for now"
 
    bodyInstrs <- case impl.body of
-      ExpMatch _ match -> lowerMatchTo env target match
+      ExpMatch _ match -> lowerMatchTo env targetTy (DestBinding target) match
       _ -> todo__ "only a top-level `match` system body is supported yet"
 
    let name = KirName (namespacedName module' impl.name)
    let bindings = map snd bs
-   let body = KirBlock { instructs = bodyInstrs, term = KirReturn }
+   let body = KirBlock { instructs = bodyInstrs, term = KirReturn Nothing }
 
    return KirSystem {..}
 
 patTy :: Pattern Desugared -> Type
 patTy = (.ty) . patAnnotation
 
+lowerFunction :: Module -> FuncImpl Desugared -> Lowerer KirFunction
+lowerFunction module' impl = do
+   match <- case impl.body of
+      ExpMatch _ m -> pure m
+      _ -> todo__ "only a top-level `match` function body is supported yet"
+
+   (lid, paramIdent, paramTy) <- case match.baseExpr of
+      ExpTuple _ [ExpVar info _ ident] ->
+         case info.res of
+            Just (ResLocal l) -> pure (l, ident, info.ty)
+            _ -> todo__ ("unresolved function parameter " ++ show ident)
+      ExpTuple _ [] ->
+         todo__ "0-argument functions are not supported by the lowerer yet"
+      _ ->
+         todo__ "functions with more than one parameter are not supported by the lowerer yet"
+
+   let env = M.singleton lid (KirVar (KirName paramIdent.inner))
+   let retTy = (exprAnnotation impl.body).ty
+
+   resultId <- freshKirLocalId
+   bodyInstrs <- lowerMatchTo env retTy (DestLocal resultId) match
+
+   let name = KirName (namespacedName module' impl.name)
+   let params = [KirParam { ty = paramTy, name = KirName paramIdent.inner }]
+   let body = KirBlock { instructs = bodyInstrs, term = KirReturn (Just (KirLocalRef resultId)) }
+
+   return KirFunction {..}
+
 lowerMatchTo
    :: M.Map LocalId KirValue
-   -> KirBindingId
+   -> Type
+   -> KirDest
    -> Match Desugared
    -> Lowerer [KirInstruct]
-lowerMatchTo env target match = do
+lowerMatchTo env ty dest match = do
    (scrutInstrs, scrutVal) <- lowerExpr env match.baseExpr
    (litArms, mDefault) <- lowerWings env scrutVal match.matches
-   pure (scrutInstrs ++ [KirMatch scrutVal litArms mDefault target])
+   pure (scrutInstrs ++ [KirMatch ty scrutVal litArms mDefault dest])
 
 lowerWings
    :: M.Map LocalId KirValue
@@ -131,4 +161,31 @@ lowerExpr env expr = case expr of
       let instrs = concatMap fst lowered ++ [KirCall retType (KirName fnIdent.inner) (map snd lowered) resultName]
       pure (instrs, KirVar resultName)
 
+   ExpLetIn _ letIn -> do
+      (bindInstrs, env') <- lowerLetBindings env letIn.bindings
+      (bodyInstrs, bodyVal) <- lowerExpr env' letIn.bindExpr
+      pure (bindInstrs ++ bodyInstrs, bodyVal)
+
    _ -> todo__ "this expression form is not supported by the lowerer yet"
+
+lowerLetBindings
+   :: M.Map LocalId KirValue
+   -> [Let Desugared]
+   -> Lowerer ([KirInstruct], M.Map LocalId KirValue)
+lowerLetBindings env [] = pure ([], env)
+lowerLetBindings env (Let pat value : rest) = do
+   (valInstrs, val) <- lowerExpr env value
+   
+   case pat of
+      PatVar info ident ->
+         case info.res of
+            Just (ResLocal lid) -> do
+               (restInstrs, env') <- lowerLetBindings (M.insert lid val env) rest
+               pure (valInstrs ++ restInstrs, env')
+            _ -> todo__ ("unresolved let binding " ++ show ident)
+
+      PatWildcard _ -> do
+         (restInstrs, env') <- lowerLetBindings env rest
+         pure (valInstrs ++ restInstrs, env')
+
+      _ -> todo__ "only variable and wildcard patterns are supported in let bindings yet"

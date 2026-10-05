@@ -2,8 +2,6 @@ module Main where
 
 import Xast.Pipeline (runCompile)
 import System.Environment (getArgs)
-import Xast.Html (renderDocument)
-import Data.Text (unpack)
 
 main :: IO ()
 main = do

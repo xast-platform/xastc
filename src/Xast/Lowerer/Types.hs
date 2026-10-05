@@ -14,7 +14,7 @@ emptyLowerState = LowerState { nameSupply = 0 }
 data Kira = Kira
    { moduleName :: Module
    , systems :: [KirSystem]
-   , functions :: [()] -- TODO: add pure functions
+   , functions :: [KirFunction]
    }
    deriving Show
 
@@ -28,6 +28,20 @@ data KirSystem = KirSystem
    }
    deriving Show
 
+data KirFunction = KirFunction
+   { name :: KirName
+   , params :: [KirParam]
+   , retTy :: Type
+   , body :: KirBlock
+   }
+   deriving Show
+
+data KirParam = KirParam
+   { ty :: Type
+   , name :: KirName
+   }
+   deriving Show
+
 data KirBlock = KirBlock
    { instructs :: [KirInstruct]
    , term :: KirTerm
@@ -37,24 +51,34 @@ data KirBlock = KirBlock
 data KirInstruct
    = KirCall Type KirName [KirValue] KirName
    | KirAssign KirBindingId KirValue
-   | KirMatch 
-      KirValue 
-      [(Literal, [KirInstruct], KirValue)] 
-      (Maybe ([KirInstruct], KirValue)) 
-      KirBindingId
+   | KirMatch
+      Type
+      KirValue
+      [(Literal, [KirInstruct], KirValue)]
+      (Maybe ([KirInstruct], KirValue))
+      KirDest
    deriving Show
 
-data KirTerm
-   = KirReturn
+newtype KirTerm
+   = KirReturn (Maybe KirValue)
    deriving Show
 
 data KirValue
    = KirConst Literal
    | KirVar KirName
    | KirBindingRef KirBindingId
+   | KirLocalRef KirLocalId
+   deriving Show
+
+newtype KirLocalId = KirLocalId Int
    deriving Show
 
 newtype KirBindingId = KirBindingId Int
+   deriving Show
+
+data KirDest
+   = DestBinding KirBindingId -- *_bN
+   | DestLocal KirLocalId     -- tM
    deriving Show
 
 data KirBinding = KirBinding

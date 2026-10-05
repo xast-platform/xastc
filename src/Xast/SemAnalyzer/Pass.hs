@@ -472,7 +472,7 @@ payloadTypes :: Payload -> [Located Type]
 payloadTypes = \case
    PUnit        -> []
    PTuple tys   -> tys
-   PRecord flds -> map (.ty) flds
+   PRecord fields -> map (.ty) fields
 
 withTypeLoc :: WithType -> Located Type
 withTypeLoc (WithEvent lt) = lt
@@ -504,14 +504,14 @@ resolveNames (Program md@(ModuleDef _ m _) imps stmts src) = do
    modify $ \st -> st { currentModule = m }
    stmts' <- forM stmts $ \case
       StmtFunc (FnImpl (FuncImpl implLoc fnIdent args body)) -> do
-         scope <- freshLocalScope (foldMap collectPatternVars args)
+         scope <- freshCheckedScope M.empty imps (concatMap patternVarLocs args)
          body' <- resolveExprAt scope imps body
          let args' = map (resolvePattern scope) args
          pure $ StmtFunc (FnImpl (FuncImpl implLoc fnIdent args' body'))
 
       StmtSystem (SysImpl (SystemImpl implLoc sysIdent entPats mWith body)) -> do
-         entScope  <- freshLocalScope (foldMap (\(EntityPattern bs) -> foldMap (collectPatternVars . (.pat)) bs) entPats)
-         withScope <- freshLocalScope (maybe S.empty (foldMap collectPatternVars) mWith)
+         entScope  <- freshCheckedScope M.empty imps (concatMap (\(EntityPattern bs) -> concatMap (patternVarLocs . (.pat)) bs) entPats)
+         withScope <- freshCheckedScope entScope imps (maybe [] (concatMap patternVarLocs) mWith)
          body' <- resolveExprAt (M.union entScope withScope) imps body
 
          sig <- lookupCurrentSystem sysIdent
@@ -598,19 +598,46 @@ resolveDefImplMatches stmts = go stmts stmts
 
       go [] _ = pure ()
 
-collectPatternVars :: Pattern a -> S.Set Ident
-collectPatternVars = \case
-   PatVar _ x    -> S.singleton x
-   PatWildcard _ -> S.empty
-   PatLit _ _    -> S.empty
-   PatList _ ps  -> foldMap collectPatternVars ps
-   PatTuple _ ps -> foldMap collectPatternVars ps
-   PatCon _ _ ps -> foldMap collectPatternVars ps
+patternVarLocs :: Pattern Parsed -> [(Ident, Location)]
+patternVarLocs = \case
+   PatVar (ParsedInfo loc) x -> [(x, loc)]
+   PatWildcard _ -> []
+   PatLit _ _    -> []
+   PatList _ ps  -> concatMap patternVarLocs ps
+   PatTuple _ ps -> concatMap patternVarLocs ps
+   PatCon _ _ ps -> concatMap patternVarLocs ps
 
-resolvePattern :: M.Map Ident LocalId -> Pattern Parsed -> Pattern Resolved
+freshCheckedScope
+   :: M.Map Ident (LocalId, Location)
+   -> [Located ImportDef]
+   -> [(Ident, Location)]
+   -> SemAnalyzer (M.Map Ident (LocalId, Location))
+freshCheckedScope outerScope imps newVars = do
+   checkNoDuplicates M.empty newVars
+   forM_ newVars $ \(ident, loc) ->
+      case M.lookup ident outerScope of
+         Just (_, outerLoc) -> errSem (SEShadowedBinding ident outerLoc loc)
+         Nothing -> do
+            modSym <- lookupCurrentModule ident
+            impSym <- lookupUnqualifiedSymbol imps ident
+            case modSym <|> impSym of
+               Just sym -> errSem (SEShadowedBinding ident (symbolLoc sym) loc)
+               Nothing  -> pure ()
+   freshLocalScope newVars
+   where
+      checkNoDuplicates _ [] = pure ()
+      checkNoDuplicates seen ((ident, loc) : rest) =
+         case M.lookup ident seen of
+            Just firstLoc -> do
+               errSem (SEDuplicateBinding ident firstLoc loc)
+               checkNoDuplicates seen rest
+            Nothing ->
+               checkNoDuplicates (M.insert ident loc seen) rest
+
+resolvePattern :: M.Map Ident (LocalId, Location) -> Pattern Parsed -> Pattern Resolved
 resolvePattern scope = \case
    PatVar (ParsedInfo loc) x ->
-      PatVar (ResolvedInfo loc (ResLocal <$> M.lookup x scope)) x
+      PatVar (ResolvedInfo loc (ResLocal . fst <$> M.lookup x scope)) x
    PatWildcard (ParsedInfo loc) ->
       PatWildcard (ResolvedInfo loc Nothing)
    PatLit (ParsedInfo loc) lit ->
@@ -636,7 +663,7 @@ typeContains needle haystack
       TyFn args r -> any (typeContains needle) args || typeContains needle r
       _           -> False
 
-resolveEntityPattern :: M.Map Ident LocalId -> Type -> Maybe QueriedEntity -> EntityPattern Parsed -> EntityPattern Resolved
+resolveEntityPattern :: M.Map Ident (LocalId, Location) -> Type -> Maybe QueriedEntity -> EntityPattern Parsed -> EntityPattern Resolved
 resolveEntityPattern scope sysRet mEnt (EntityPattern bindings) =
    EntityPattern (zipWith bindOne tys bindings)
    where
@@ -648,20 +675,20 @@ resolveEntityPattern scope sysRet mEnt (EntityPattern bindings) =
          EntPatBinding (resolvePattern scope pat) (maybe AccessRead (componentAccess sysRet) mTy)
 
 resolveExprAt
-   :: M.Map Ident LocalId
+   :: M.Map Ident (LocalId, Location)
    -> [Located ImportDef]
    -> Expr Parsed
    -> SemAnalyzer (Expr Resolved)
 resolveExprAt = resolveExpr
 
 resolveExpr
-   :: M.Map Ident LocalId
+   :: M.Map Ident (LocalId, Location)
    -> [Located ImportDef]
    -> Expr Parsed
    -> SemAnalyzer (Expr Resolved)
 resolveExpr scope imps expr = case expr of
    ExpVar (ParsedInfo loc) Nothing x -> case M.lookup x scope of
-      Just lid -> pure $ ExpVar (ResolvedInfo loc (Just (ResLocal lid))) Nothing x
+      Just (lid, _) -> pure $ ExpVar (ResolvedInfo loc (Just (ResLocal lid))) Nothing x
       Nothing -> do
          modSym <- lookupCurrentModule x
          impSym <- lookupUnqualifiedSymbol imps x
@@ -719,7 +746,7 @@ resolveExpr scope imps expr = case expr of
    ExpLit (ParsedInfo loc) lit -> pure $ ExpLit (ResolvedInfo loc Nothing) lit
 
    ExpLambda (ParsedInfo loc) (Lambda args body) -> do
-      argScope <- freshLocalScope (foldMap collectPatternVars args)
+      argScope <- freshCheckedScope scope imps (concatMap patternVarLocs args)
       body' <- resolveExprAt (M.union argScope scope) imps body
       let args' = map (resolvePattern argScope) args
       pure $ ExpLambda (ResolvedInfo loc Nothing) (Lambda args' body')
@@ -730,8 +757,7 @@ resolveExpr scope imps expr = case expr of
       pure $ ExpApp (ResolvedInfo loc Nothing) lhs' rhs'
 
    ExpLetIn (ParsedInfo loc) (LetIn binds body) -> do
-      let localScope = foldMap (collectPatternVars . (.pat)) binds
-      bindScope <- freshLocalScope localScope
+      bindScope <- freshCheckedScope scope imps (concatMap (patternVarLocs . (.pat)) binds)
       let scope' = M.union bindScope scope
       binds' <- forM binds $ \(Let pat value) -> do
          value' <- resolveExprAt scope' imps value
@@ -748,7 +774,7 @@ resolveExpr scope imps expr = case expr of
    ExpMatch (ParsedInfo loc) (Match mtExp mtMatches) -> do
       mtExp' <- resolveExprAt scope imps mtExp
       mtMatches' <- forM mtMatches $ \(MatchWing pat branch) -> do
-         patScope <- freshLocalScope (collectPatternVars pat)
+         patScope <- freshCheckedScope scope imps (patternVarLocs pat)
          branch' <- resolveExprAt (M.union patScope scope) imps branch
          pure $ MatchWing (resolvePattern patScope pat) branch'
       pure $ ExpMatch (ResolvedInfo loc Nothing) (Match mtExp' mtMatches')
@@ -959,9 +985,9 @@ freshExternId = do
    put st { externIdSupply = n + 1 }
    return $ ExternId n
 
--- | Assigns a fresh LocalId to every name in the set, e.g. for a pattern's bound vars.
-freshLocalScope :: S.Set Ident -> SemAnalyzer (M.Map Ident LocalId)
-freshLocalScope xs = M.fromList <$> mapM (\x -> (,) x <$> freshLocalId) (S.toList xs)
+-- | Assigns a fresh LocalId to every name, e.g. for a pattern's bound vars.
+freshLocalScope :: [(Ident, Location)] -> SemAnalyzer (M.Map Ident (LocalId, Location))
+freshLocalScope xs = M.fromList <$> mapM (\(x, loc) -> (\lid -> (x, (lid, loc))) <$> freshLocalId) xs
 
 resolve :: Type -> SemAnalyzer Type
 resolve t = do
@@ -1331,7 +1357,7 @@ inferPattern imps ty p = case p of
             let ps' = map fst inferred
             pure (PatCon (TypedInfo loc TyInvalid mRes) ctorIdent ps', M.empty)
 
-         Just sym@(SymbolCtor _ _ _) -> do
+         Just sym@(SymbolCtor {}) -> do
             resultTy <- ctorType loc sym
             let (expectedFieldTys, ctorResultTy) = case resultTy of
                   TyFn args r -> (args, r)

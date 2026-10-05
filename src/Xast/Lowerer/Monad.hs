@@ -24,3 +24,10 @@ freshKirName = do
    let n = st.nameSupply
    put st { nameSupply = n + 1 }
    pure $ KirName (pack ("t" <> show n))
+
+freshKirLocalId :: Lowerer KirLocalId
+freshKirLocalId = do
+   st <- get
+   let n = st.nameSupply
+   put st { nameSupply = n + 1 }
+   pure $ KirLocalId n

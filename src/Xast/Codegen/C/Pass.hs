@@ -31,8 +31,15 @@ codegenOne kira = do
 
    return CProgram {..}
 
-codegenFn :: () -> CCodegen CFunction
-codegenFn = todo__ "codegen pure functions"
+codegenFn :: KirFunction -> CCodegen CFunction
+codegenFn fn = do
+   let ty = typeToCType fn.retTy
+   let KirName name = fn.name
+   let args = [CFuncArg { ty = typeToCType p.ty, name = n } | p <- fn.params, let KirName n = p.name]
+
+   body <- codegenBlock fn.body
+
+   return CFunction {..}
 
 codegenSystem :: KirSystem -> CCodegen CFunction
 codegenSystem sys = do
@@ -72,7 +79,7 @@ codegenBlock block = do
    pure (stmts ++ codegenTerm block.term)
 
 codegenTerm :: KirTerm -> [CStmt]
-codegenTerm KirReturn = [CReturn Nothing]
+codegenTerm (KirReturn mv) = [CReturn (valueToExpr <$> mv)]
 
 codegenInstructs :: [KirInstruct] -> CCodegen [CStmt]
 codegenInstructs = fmap concat . mapM codegenInstruct
@@ -83,39 +90,54 @@ codegenInstruct = \case
       pure [CDeclStmt (typeToCType retType) resultName (Just (CInvoke (CVar fnName) (map (CExprArg . valueToExpr) callArgs)))]
    KirAssign bid val ->
       pure [CExprStmt (CAssign (CVar (bindingName bid)) (valueToExpr val))]
-   KirMatch scrut arms mDefault target ->
-      codegenMatch scrut arms mDefault target
+   KirMatch ty scrut arms mDefault dest ->
+      codegenMatch ty scrut arms mDefault dest
 
 codegenMatch
-   :: KirValue
+   :: Type
+   -> KirValue
    -> [(Literal, [KirInstruct], KirValue)]
    -> Maybe ([KirInstruct], KirValue)
-   -> KirBindingId
+   -> KirDest
    -> CCodegen [CStmt]
-codegenMatch scrut arms mDefault target = fromMaybe [] <$> go arms
+codegenMatch ty scrut arms mDefault dest = do
+   armStmts <- fromMaybe [] <$> go arms
+   pure (declStmt ++ armStmts)
    where
       scrutExpr = valueToExpr scrut
+
+      declStmt = case dest of
+         DestBinding _   -> []
+         DestLocal lid -> [CDeclStmt (typeToCType ty) (localName lid) Nothing]
 
       go :: [(Literal, [KirInstruct], KirValue)] -> CCodegen (Maybe [CStmt])
       go [] = traverse codegenDefault mDefault
       go ((lit, instrs, val) : rest) = do
          armStmts <- codegenInstructs instrs
          elseStmt <- go rest
-         pure $ Just $ [CIf
-            (CBinary Eq scrutExpr (literalToExpr lit))
-            (armStmts ++ [assignTarget val])
-            elseStmt]
+         pure $ Just
+            [ CIf
+               (CBinary Eq scrutExpr (literalToExpr lit))
+               (armStmts ++ [assignDest val])
+               elseStmt
+            ]
 
       codegenDefault (defInstrs, defVal) = do
          defStmts <- codegenInstructs defInstrs
-         pure (defStmts ++ [assignTarget defVal])
+         pure (defStmts ++ [assignDest defVal])
 
-      assignTarget v = CExprStmt (CAssign (CUnary Deref (CVar (bindingName target))) (valueToExpr v))
+      assignDest v = case dest of
+         DestBinding bid -> CExprStmt (CAssign (CUnary Deref (CVar (bindingName bid))) (valueToExpr v))
+         DestLocal lid   -> CExprStmt (CAssign (CVar (localName lid)) (valueToExpr v))
+
+localName :: KirLocalId -> Text
+localName (KirLocalId n) = "_l" <> T.pack (show n)
 
 valueToExpr :: KirValue -> CExpr
 valueToExpr (KirConst lit)       = literalToExpr lit
 valueToExpr (KirVar (KirName n)) = CVar n
 valueToExpr (KirBindingRef bid)  = CUnary Deref (CVar (bindingName bid))
+valueToExpr (KirLocalRef lid)    = CVar (localName lid)
 
 literalToExpr :: Literal -> CExpr
 literalToExpr (LitInt n)   = CIntLit n.value
@@ -125,6 +147,6 @@ literalToExpr lit          = todo__ ("no C representation for literal " ++ show 
 typeToCType :: Type -> CType
 typeToCType (TyCon (Ident "Int"))   = CInt
 typeToCType (TyCon (Ident "Float")) = CFloat
-typeToCType (TyCon (Ident "Long")) = CLong
+typeToCType (TyCon (Ident "Long"))  = CLong
 typeToCType (TyCon (Ident "Bool"))  = CBool
 typeToCType ty = todo__ ("no C representation for type " ++ typename ty)

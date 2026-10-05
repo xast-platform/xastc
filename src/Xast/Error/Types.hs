@@ -29,6 +29,9 @@ data SemError
    | SEExternTypeRedeclaration Ident Location Location
    | SESystemRedeclaration Ident Location Location
    | SECtorRedeclaration Ident Location Location
+   -- Shadowing error
+   | SEDuplicateBinding Ident Location Location
+   | SEShadowedBinding Ident Location Location
    -- Undefined symbols
    | SEUndefinedVar Location Ident
    | SEUndefinedCon Location Ident

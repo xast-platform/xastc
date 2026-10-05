@@ -3,4 +3,4 @@ module Std.Error exports *
 use Std.String { String } 
 
 @Intrinsic
-extern fn error(String) -> a;
+extern fn error (String) -> a;
