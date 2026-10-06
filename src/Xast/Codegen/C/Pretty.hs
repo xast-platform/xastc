@@ -15,8 +15,8 @@ debugPrograms progs = intercalate "\n\n" $ flip map progs $ \prog ->
 
 header :: Doc ann
 header = 
-   "#include <stdint.h>" <> hardline <>
-   "#include <flecs.h>" <> hardline <> hardline
+   "#include <stdint.h>" <> hardline 
+   -- <> "#include <flecs.h>" <> hardline <> hardline
 
 prettyProgram :: CProgram -> Doc ann
 prettyProgram prog = 
@@ -68,7 +68,27 @@ prettyStmt = \case
          , "}"
          ]
    CWhile _ _ -> undefined
-      
+
+   CSwitch scrut cases defaultBranch ->
+      "switch" <+> enclose "(" ")" (prettyExpr scrut) <+> vsep
+         [ "{"
+         , indent 4 (vsep (map prettyCase cases ++ [prettyDefault defaultBranch]))
+         , "}"
+         ]
+      where
+         prettyCase (lbl, stmts) = vsep
+            [ "case" <+> prettyExpr lbl <> ":"
+            , indent 4 (vsep (map prettyStmt stmts ++ ["break;"]))
+            ]
+         prettyDefault CDefaultUnreachable = vsep
+            [ "default:"
+            , indent 4 "__builtin_unreachable();"
+            ]
+         prettyDefault (CDefaultStmts stmts) = vsep
+            [ "default:"
+            , indent 4 (vsep (map prettyStmt stmts ++ ["break;"]))
+            ]
+
 
 prettyExpr :: CExpr -> Doc ann
 prettyExpr = \case
@@ -128,6 +148,5 @@ prettyType = \case
    CUByte   -> "uint8_t"
    CFloat   -> "float"
    CDouble  -> "double"
-   CBool    -> "bool"
    CPointer ty    -> prettyType ty <> "*"
    CStruct name   -> pretty name

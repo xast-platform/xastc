@@ -8,7 +8,7 @@ import Control.Monad.State
 import Control.Monad.Writer (listen, censor)
 import Control.Monad (forM_, unless, when, foldM, zipWithM_, zipWithM, forM)
 import Data.Maybe (mapMaybe, fromJust, fromMaybe)
-import Data.List (sortBy, sortOn, groupBy)
+import Data.List (sortBy, sortOn, groupBy, transpose)
 import Data.Foldable (foldl')
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -144,9 +144,9 @@ declareFn ident fd@(FuncDef loc _ fnIdent fnArgs _) = do
    declareSymbol ident (SymbolFn loc fid (funcSig fd)) SEFnRedeclaration
 
 declareType :: Ident -> TypeDef -> SemAnalyzer ()
-declareType ident (TypeDef loc _ _ generics ctors) = do
+declareType ident (TypeDef loc modifiers _ generics ctors) = do
    let ctorNames = S.fromList [ctor.name | ctor <- ctors]
-       typeSig = TypeSig ctorNames generics
+       typeSig = TypeSig ctorNames generics (TypeMod ModNonExhaustive `elem` modifiers)
 
    case [ctor | ctor <- ctors, ctor.name == ident] of
       [selfCtor] -> do
@@ -771,13 +771,13 @@ resolveExpr scope imps expr = case expr of
       fl' <- resolveExprAt scope imps fl
       pure $ ExpIfThen (ResolvedInfo loc Nothing) (IfThenElse cond' tr' fl')
 
-   ExpMatch (ParsedInfo loc) (Match mtExp mtMatches) -> do
+   ExpMatch (ParsedInfo loc) (Match mtExp mtMatches exhaustive) -> do
       mtExp' <- resolveExprAt scope imps mtExp
       mtMatches' <- forM mtMatches $ \(MatchWing pat branch) -> do
          patScope <- freshCheckedScope scope imps (patternVarLocs pat)
          branch' <- resolveExprAt (M.union patScope scope) imps branch
          pure $ MatchWing (resolvePattern patScope pat) branch'
-      pure $ ExpMatch (ResolvedInfo loc Nothing) (Match mtExp' mtMatches')
+      pure $ ExpMatch (ResolvedInfo loc Nothing) (Match mtExp' mtMatches' exhaustive)
 
    ExpRecConstruct (ParsedInfo loc) (RecConstruct rcBind rcCon rcAssigns) -> do
       rcAssigns' <- forM rcAssigns $ \(RecAssign fld value) -> do
@@ -818,12 +818,12 @@ checkIntegerBounds = \case
 
    ExpApp res
       (ExpVar _ _ (Ident "opNeg"))
-      (ExpLit _ (LitInt (IntLiteral kind value))) -> 
-         checkIntegerLiteralBounds 
-            (IntLiteral kind (negate value)) 
+      (ExpLit _ (LitInt (IntLiteral kind value))) ->
+         checkIntegerLiteralBounds
+            (IntLiteral kind (negate value))
             res.location
-   ExpApp _ op opnd -> 
-      checkIntegerBounds op >> 
+   ExpApp _ op opnd ->
+      checkIntegerBounds op >>
       checkIntegerBounds opnd
 
    ExpLit {} -> pure ()
@@ -832,18 +832,18 @@ checkIntegerBounds = \case
    ExpTuple _ xs -> forM_ xs checkIntegerBounds
    ExpList _ xs -> forM_ xs checkIntegerBounds
    ExpLambda _ lambda -> checkIntegerBounds lambda.body
-   ExpLetIn _ letIn -> 
-      checkIntegerBounds letIn.bindExpr >> 
+   ExpLetIn _ letIn ->
+      checkIntegerBounds letIn.bindExpr >>
       forM_ letIn.bindings (\bind -> checkIntegerBounds bind.value)
-   ExpMatch _ match -> 
-      checkIntegerBounds match.baseExpr >> 
+   ExpMatch _ match ->
+      checkIntegerBounds match.baseExpr >>
       forM_ match.matches (\(MatchWing _ expr) -> checkIntegerBounds expr)
    ExpIfThen _ ite ->
       checkIntegerBounds ite.ifExpr >>
       checkIntegerBounds ite.thenExpr >>
       checkIntegerBounds ite.elseExpr
    ExpRecConstruct _ recCon -> forM_ recCon.assigns $ \(RecAssign _ expr) -> checkIntegerBounds expr
-   ExpRecUpdate _ recUpd -> 
+   ExpRecUpdate _ recUpd ->
       checkIntegerBounds recUpd.base >>
       forM_ recUpd.assigns (\(RecAssign _ expr) -> checkIntegerBounds expr)
    ExpVarGetter _ expr _ -> checkIntegerBounds expr
@@ -1177,7 +1177,7 @@ inferType imps expr = case expr of
       (binds', body') <- typeLetBinds imps binds body
       pure $ ExpLetIn (TypedInfo loc (typeOf body') mRes) (LetIn binds' body')
 
-   ExpMatch (ResolvedInfo loc mRes) (Match mtExp mtMatches) -> do
+   ExpMatch (ResolvedInfo loc mRes) (Match mtExp mtMatches _) -> do
       mtExp' <- inferType imps mtExp
       wings <- forM mtMatches $ \(MatchWing pat branch) -> do
          (pat', patVars) <- inferPattern imps (typeOf mtExp') pat
@@ -1188,7 +1188,9 @@ inferType imps expr = case expr of
          ((_, t):rest) -> do
             forM_ rest (unify loc t . snd)
             resolve t
-      pure $ ExpMatch (TypedInfo loc ty mRes) (Match mtExp' (map fst wings))
+      scrutTy <- resolve (typeOf mtExp')
+      isExhaustive <- checkMatchExhaustive loc scrutTy (map (patOf . fst) wings)
+      pure $ ExpMatch (TypedInfo loc ty mRes) (Match mtExp' (map fst wings) isExhaustive)
 
    ExpLambda (ResolvedInfo loc mRes) (Lambda args body) -> do
       argTyVars <- forM args $ const freshTyVar
@@ -1283,7 +1285,7 @@ recordFieldsOf imps loc ty = case typeHead ty of
             modTy <- lookupCurrentConType conIdent
             impTy <- lookupUnqualifiedConType imps conIdent
             case modTy <|> impTy of
-               Just (SymbolType _ (TypeSig ctors _)) | S.size ctors > 1 -> do
+               Just (SymbolType _ (TypeSig ctors _ _)) | S.size ctors > 1 -> do
                   errSem (SEAmbiguousRecordAccess loc conIdent (S.toList (S.delete conIdent ctors)))
                   pure Nothing
                _ -> do
@@ -1303,6 +1305,37 @@ typeHead = \case
    TyCon n   -> Just n
    TyApp t _ -> typeHead t
    _         -> Nothing
+
+patOf :: MatchWing a -> Pattern a
+patOf (MatchWing pat _) = pat
+
+checkMatchExhaustive :: Location -> Type -> [Pattern Typed] -> SemAnalyzer Bool
+checkMatchExhaustive loc scrutTy pats = case typeHead scrutTy of
+   Nothing -> pure False
+   Just tyIdent -> do
+      msym <- lookupCurrentModule tyIdent
+      case msym of
+         Just (SymbolType _ typeSig) | not typeSig.nonExhaustive ->
+            if any isCatchAll pats
+               then pure True
+               else do
+                  let covered = S.fromList [ctorIdent | PatCon _ ctorIdent _ <- pats]
+                  let missing = S.toList (typeSig.ctors S.\\ covered)
+                  if null missing
+                     then pure True
+                     else do
+                        errSem (SENonExhaustiveMatch loc tyIdent missing)
+                        pure False
+         _ -> pure False
+   where
+      isCatchAll (PatVar _ _)    = True
+      isCatchAll (PatWildcard _) = True
+      isCatchAll _               = False
+
+checkClausesExhaustive :: Location -> [Type] -> [[Pattern Typed]] -> SemAnalyzer Bool
+checkClausesExhaustive loc paramTys clauseArgs = do
+   results <- forM (zip paramTys (transpose clauseArgs)) $ uncurry (checkMatchExhaustive loc)
+   pure (and results)
 
 typeLetBinds
    :: [Located ImportDef]
@@ -1491,7 +1524,7 @@ desugarProgram prog = do
    desugaredSystems <- forM sysGroups desugarSys
 
    -- Combine stmts
-   let combinedStmts = notImpl 
+   let combinedStmts = notImpl
          <> fmap (StmtFunc . FnImpl) desugaredFns
          <> fmap (StmtSystem . SysImpl) desugaredSystems
 
@@ -1505,6 +1538,8 @@ desugarFn :: [FuncImpl Typed] -> SemAnalyzer (FuncImpl Desugared)
 desugarFn group = do
    let fstImpl = head group
    let argTypes = map ((.ty) . patAnnotation) fstImpl.args
+
+   isExhaustive <- checkClausesExhaustive fstImpl.location argTypes (map (.args) group)
 
    -- Tuple patterns and bodies
    let tupleAnn = DesugaredInfo {res = Nothing, ty = TyTuple argTypes}
@@ -1524,7 +1559,7 @@ desugarFn group = do
          ExpVar DesugaredInfo {res = Just (ResLocal lid), ty = ty} Nothing name
 
    -- Generate match
-   let matchExpr = Match baseExpr $ map (uncurry MatchWing) patBodies
+   let matchExpr = Match baseExpr (map (uncurry MatchWing) patBodies) isExhaustive
    let retType = (exprAnnotation (snd (head patBodies))).ty
 
    -- Construct new func impl
@@ -1547,6 +1582,8 @@ desugarSys group = do
    let withTypes = maybe [] (map ((.ty) . patAnnotation)) fstImpl.with
    let argTypes = entityTypes ++ withTypes
 
+   isExhaustive <- checkClausesExhaustive fstImpl.location argTypes (map flattenClause group)
+
    -- Tuple patterns and bodies
    let tupleAnn = DesugaredInfo {res = Nothing, ty = TyTuple argTypes}
    let patBodies = flip map group $ \i ->
@@ -1563,7 +1600,7 @@ desugarSys group = do
          ExpVar DesugaredInfo {res = Just (ResLocal lid), ty = ty} Nothing name
 
    -- Generate match
-   let matchExpr = Match baseExpr $ map (uncurry MatchWing) patBodies
+   let matchExpr = Match baseExpr (map (uncurry MatchWing) patBodies) isExhaustive
    let retType = (exprAnnotation (snd (head patBodies))).ty
 
    -- Rebuild the entity/with shape from `fstImpl`, substituting each

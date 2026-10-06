@@ -8,6 +8,8 @@ import Data.Text (pack)
 import Data.List (dropWhileEnd)
 import Data.Either (partitionEithers)
 import System.Directory (getCurrentDirectory, doesFileExist)
+import System.Process
+import System.IO
 
 import Xast.Config (xastConfigCodec, projectConfig, modules)
 import Xast.Error.Types (XastError (..))
@@ -20,9 +22,10 @@ import Xast.Utils.Pretty
 import qualified Toml
 import Control.Monad.RWS (MonadTrans(lift))
 import Xast.Lowerer.Pass (lowerPrograms)
-import Xast.Codegen.C.Pretty (debugPrograms)
+import Xast.Codegen.C.Pretty (debugPrograms, prettyProgram)
 import Xast.Codegen.C.Pass (codegen)
 import Xast.Utils.Compiler (Target(Target64))
+import GHC.IO.Exception (ExitCode)
 
 runCompile :: Maybe FilePath -> IO ()
 runCompile dir = runCompile_ dir >>= \case
@@ -97,7 +100,24 @@ runCompile_ dir = runExceptT $ do
    liftIO $ putStrLn $ debugPrograms generatedC
    ----------------------------------------
 
+   _ <- liftIO $ compileGcc $ show $ prettyProgram $ head generatedC
+
    return warnings
+
+compileGcc :: String -> IO ExitCode
+compileGcc source = do
+   (Just hin, _, _, ph) <-
+      createProcess
+         (proc "gcc" ["-fsyntax-only", "-x", "c", "-"])
+            { std_in  = CreatePipe
+            , std_out = Inherit
+            , std_err = Inherit
+            }
+
+   hPutStr hin source
+   hClose hin
+
+   waitForProcess ph
 
 parseOne :: FilePath -> Module -> IO (Either XastError (Program Parsed))
 parseOne currentDir module_ = runExceptT $ do

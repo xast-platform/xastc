@@ -90,21 +90,21 @@ lookupCurrentConType :: Ident -> SemAnalyzer (Maybe SymbolInfo)
 lookupCurrentConType ident = do
    symbol <- lookupCurrentModule ident
    pure $ case symbol >>= asType of
-      Just s@(SymbolType _ (TypeSig ctors _)) | S.member ident ctors -> Just s
+      Just s@(SymbolType _ (TypeSig ctors _ _)) | S.member ident ctors -> Just s
       _ -> Nothing
 
 lookupUnqualifiedConType :: [Located ImportDef] -> Ident -> SemAnalyzer (Maybe SymbolInfo)
 lookupUnqualifiedConType imps ident = do
    symbol <- lookupUnqualifiedSymbol imps ident
    pure $ case symbol >>= asType of
-      Just s@(SymbolType _ (TypeSig ctors _)) | S.member ident ctors -> Just s
+      Just s@(SymbolType _ (TypeSig ctors _ _)) | S.member ident ctors -> Just s
       _ -> Nothing
 
 lookupQualifiedConType :: [Located ImportDef] -> Ident -> Ident -> SemAnalyzer (Maybe SymbolInfo)
 lookupQualifiedConType imps alias ident = do
    symbol <- lookupQualifiedSymbol imps alias ident
    pure $ case symbol >>= asType of
-      Just s@(SymbolType _ (TypeSig ctors _)) | S.member ident ctors -> Just s
+      Just s@(SymbolType _ (TypeSig ctors _ _)) | S.member ident ctors -> Just s
       _ -> Nothing
 
 isTypeSymbol :: SymbolInfo -> Bool

@@ -1,6 +1,6 @@
 module Xast.Lowerer.Types where
 
-import Xast.AST (Type, Literal, BindingAccess, Module)
+import Xast.AST
 import Data.Text (Text)
 
 newtype LowerState = LowerState
@@ -48,15 +48,34 @@ data KirBlock = KirBlock
    }
    deriving Show
 
+data KirBranch = KirBranch
+   { instructs :: [KirInstruct]
+   , value     :: KirValue
+   }
+   deriving Show
+
+data KirTag
+   = TagLit Literal
+   | TagCtor Ident
+   deriving Show
+
+data KirMatchArm = KirMatchArm
+   { tag    :: KirTag
+   , branch :: KirBranch
+   }
+   deriving Show
+
 data KirInstruct
    = KirCall Type KirName [KirValue] KirName
    | KirAssign KirBindingId KirValue
    | KirMatch
-      Type
-      KirValue
-      [(Literal, [KirInstruct], KirValue)]
-      (Maybe ([KirInstruct], KirValue))
-      KirDest
+      { ty         :: Type
+      , scrutinee  :: KirValue
+      , arms       :: [KirMatchArm]
+      , fallback   :: Maybe KirBranch
+      , dest       :: KirDest
+      , exhaustive :: Bool
+      }
    deriving Show
 
 newtype KirTerm
@@ -64,7 +83,7 @@ newtype KirTerm
    deriving Show
 
 data KirValue
-   = KirConst Literal
+   = KirConst KirTag
    | KirVar KirName
    | KirBindingRef KirBindingId
    | KirLocalRef KirLocalId

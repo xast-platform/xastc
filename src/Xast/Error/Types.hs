@@ -58,6 +58,7 @@ data SemError
    | SENotARecordType Location Type
    | SEAmbiguousRecordAccess Location Ident [Ident]
    | SEInvalidTupleIndex Location Type Int
+   | SENonExhaustiveMatch Location Ident [Ident]
    deriving Show
 
 data SemWarning

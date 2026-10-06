@@ -57,6 +57,7 @@ library
         Xast.Utils.Generic,
 
     build-depends:   
+        process ^>=1.6.19.0, 
         tomland, 
         mtl ^>=2.3.1,
         base ^>=4.18.3.0,

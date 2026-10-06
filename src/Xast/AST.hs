@@ -229,8 +229,9 @@ data BuiltinOp
    deriving (Eq, Show)
 
 data Match a = Match
-   { baseExpr  :: Expr a
-   , matches   :: [MatchWing a]
+   { baseExpr   :: Expr a
+   , matches    :: [MatchWing a]
+   , exhaustive :: Bool
    }
    deriving (Eq, Show, Functor, Foldable, Traversable)
 

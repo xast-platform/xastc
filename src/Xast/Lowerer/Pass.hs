@@ -103,14 +103,14 @@ lowerMatchTo
    -> Lowerer [KirInstruct]
 lowerMatchTo env ty dest match = do
    (scrutInstrs, scrutVal) <- lowerExpr env match.baseExpr
-   (litArms, mDefault) <- lowerWings env scrutVal match.matches
-   pure (scrutInstrs ++ [KirMatch ty scrutVal litArms mDefault dest])
+   (arms, fallback) <- lowerWings env scrutVal match.matches
+   pure (scrutInstrs ++ [KirMatch { ty = ty, scrutinee = scrutVal, arms = arms, fallback = fallback, dest = dest, exhaustive = match.exhaustive }])
 
 lowerWings
    :: M.Map LocalId KirValue
    -> KirValue
    -> [MatchWing Desugared]
-   -> Lowerer ([(Literal, [KirInstruct], KirValue)], Maybe ([KirInstruct], KirValue))
+   -> Lowerer ([KirMatchArm], Maybe KirBranch)
 lowerWings _ _ [] = pure ([], Nothing)
 lowerWings env scrutVal (MatchWing pat body : rest) = case pat of
    PatTuple _ [p] -> lowerWings env scrutVal (MatchWing p body : rest)
@@ -118,25 +118,53 @@ lowerWings env scrutVal (MatchWing pat body : rest) = case pat of
 
    PatLit _ lit -> do
       (bodyInstrs, bodyVal) <- lowerExpr env body
-      (restArms, mDefault) <- lowerWings env scrutVal rest
-      pure ((lit, bodyInstrs, bodyVal) : restArms, mDefault)
+      (restArms, fallback) <- lowerWings env scrutVal rest
+      let armMatch = KirMatchArm 
+            { tag = TagLit lit
+            , branch = KirBranch 
+               { instructs = bodyInstrs
+               , value = bodyVal 
+               } 
+            }
+
+      pure (armMatch : restArms, fallback)
+
+   PatCon _ ctorIdent [] -> do
+      (bodyInstrs, bodyVal) <- lowerExpr env body
+      (restArms, fallback) <- lowerWings env scrutVal rest
+      let armMatch = KirMatchArm
+            { tag = TagCtor ctorIdent
+            , branch = KirBranch
+               { instructs = bodyInstrs
+               , value = bodyVal
+               }
+            }
+
+      pure (armMatch : restArms, fallback)
+
+   PatCon _ _ (_:_) -> todo__ "ADT constructors with payload are not supported yet"
 
    PatVar info ident ->
       case info.res of
          Just (ResLocal lid) -> do
             (bodyInstrs, bodyVal) <- lowerExpr (M.insert lid scrutVal env) body
-            pure ([], Just (bodyInstrs, bodyVal))
+            pure ([], Just (KirBranch { instructs = bodyInstrs, value = bodyVal }))
          _ -> todo__ ("unresolved variable pattern " ++ show ident ++ " in match arm")
 
    PatWildcard _ -> do
       (bodyInstrs, bodyVal) <- lowerExpr env body
-      pure ([], Just (bodyInstrs, bodyVal))
+      pure ([], Just (KirBranch { instructs = bodyInstrs, value = bodyVal }))
 
    _ -> todo__ "only literal, variable, and wildcard patterns are supported in match arms yet"
 
 lowerExpr :: M.Map LocalId KirValue -> Expr Desugared -> Lowerer ([KirInstruct], KirValue)
 lowerExpr env expr = case expr of
-   ExpLit _ lit -> pure ([], KirConst lit)
+   ExpLit _ lit -> pure ([], KirConst (TagLit lit))
+
+   ExpCon info _ ident ->
+      case info.res of
+         Just (ResConstructor _) -> pure ([], KirConst (TagCtor ident))
+         _ -> todo__ ("unresolved constructor: " ++ show ident)
 
    ExpTuple _ [e] -> lowerExpr env e
    ExpTuple {} -> todo__ "tuples with more than one element are not supported by the lowerer yet"

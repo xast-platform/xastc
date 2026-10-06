@@ -80,8 +80,9 @@ data CtorSig = CtorSig
    deriving (Eq, Show)
 
 data TypeSig = TypeSig
-   { ctors     :: S.Set Ident
-   , generics  :: [Ident]
+   { ctors         :: S.Set Ident
+   , generics      :: [Ident]
+   , nonExhaustive :: Bool
    }
    deriving (Eq, Show)
 

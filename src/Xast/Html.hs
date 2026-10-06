@@ -142,7 +142,7 @@ collectTokens node = case node of
       concatMap (\(Let pat value) -> collectPatternTokens pat ++ collectTokens value) binds
          ++ collectTokens bodyExpr
 
-   ExpMatch _ (Match scrut wings) ->
+   ExpMatch _ (Match scrut wings _) ->
       collectTokens scrut ++ concatMap (\(MatchWing pat e) -> collectPatternTokens pat ++ collectTokens e) wings
 
    ExpIfThen _ (IfThenElse c t e) ->

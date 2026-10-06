@@ -101,6 +101,7 @@ match' = do
    baseExpr  <- expr
    _         <- symbol "with"
    matches   <- matchWing `sepBy1` symbol ","
+   let exhaustive = False
 
    return Match {..}
 

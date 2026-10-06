@@ -6,17 +6,24 @@ extern type Long;
 extern fn opAdd(a, a) -> a;
 extern fn opNeg(a) -> a;
 
-@Mode(Strict)
-system Increment #(Long) -> Long;
-system Increment other = other + 1L;
+-- @Mode(Strict)
+-- system Increment #(Long) -> Long;
+-- system Increment other = other + 1L;
 
-@Mode(Strict)
-system Clamp0To100 #(Int) -> Int;
-system Clamp0To100 100   = 0;
-system Clamp0To100 other = other + 1;
+-- @Mode(Strict)
+-- system Clamp0To100 #(Int) -> Int;
+-- system Clamp0To100 100   = 0;
+-- system Clamp0To100 other = other + 1;
 
-fn double(Int) -> Int;
+type Bool = True | False;
+
+fn double (Int) -> Int;
 fn double x =
+    let y = True,
     let d = x + x,
-    let double = d + 0
-    in d;
+    let d2 = d + 0
+    in d2;
+
+fn inverse (Bool) -> Bool;
+fn inverse True = False;
+fn inverse False = True;

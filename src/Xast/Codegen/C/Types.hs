@@ -48,7 +48,6 @@ data CType
    | CUByte    -- uint8_t
    | CFloat    -- float
    | CDouble   -- double
-   | CBool     -- bool
    | CPointer CType
    | CStruct Text
    deriving Show
@@ -88,4 +87,10 @@ data CStmt
    | CWhile CExpr CStmt
    | CExprStmt CExpr
    | CDeclStmt CType Text (Maybe CExpr)
+   | CSwitch CExpr [(CExpr, [CStmt])] CDefaultBranch
+   deriving Show
+
+data CDefaultBranch
+   = CDefaultUnreachable
+   | CDefaultStmts [CStmt]
    deriving Show

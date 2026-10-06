@@ -272,6 +272,17 @@ instance PrintError SemError where
 
       in printReportAt filename report
 
+   printError (SENonExhaustiveMatch loc tyIdent missingCtors) =
+      let Location pos _ len = loc
+          filename = sourceName pos
+          missingList = intercalate ", " (map show missingCtors)
+          report = errReport
+            ("Non-exhaustive match on " <> show (blue (show tyIdent)) <> ": missing " <> missingList)
+            [ (toPosition pos len filename, This "Not every constructor is covered here") ]
+            [ Hint "Add arms for the missing constructors, add a wildcard/variable arm, or mark the type @NonExhaustive." ]
+
+      in printReportAt filename report
+
    printError (SEUndefinedAlias filename alias) =
       let report = errReport
             ("Undefined module alias: " <> show (blue (show alias)))

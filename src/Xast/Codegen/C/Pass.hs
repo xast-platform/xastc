@@ -12,7 +12,7 @@ import Xast.Utils.Generic (todo__)
 import Xast.AST (moduleToPath, IntLiteral(..), Literal(..), Type(..), Ident(..), typename)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 
 codegen :: [Kira] -> [CProgram]
 codegen kira =
@@ -90,18 +90,19 @@ codegenInstruct = \case
       pure [CDeclStmt (typeToCType retType) resultName (Just (CInvoke (CVar fnName) (map (CExprArg . valueToExpr) callArgs)))]
    KirAssign bid val ->
       pure [CExprStmt (CAssign (CVar (bindingName bid)) (valueToExpr val))]
-   KirMatch ty scrut arms mDefault dest ->
-      codegenMatch ty scrut arms mDefault dest
+   KirMatch { ty = ty, scrutinee = scrut, arms = arms, fallback = fallback, dest = dest, exhaustive = exhaustive } ->
+      codegenMatch ty scrut arms fallback dest exhaustive
 
 codegenMatch
    :: Type
    -> KirValue
-   -> [(Literal, [KirInstruct], KirValue)]
-   -> Maybe ([KirInstruct], KirValue)
+   -> [KirMatchArm]
+   -> Maybe KirBranch
    -> KirDest
+   -> Bool
    -> CCodegen [CStmt]
-codegenMatch ty scrut arms mDefault dest = do
-   armStmts <- fromMaybe [] <$> go arms
+codegenMatch ty scrut arms fallback dest exhaustive = do
+   armStmts <- if canSwitch then codegenSwitch else fromMaybe [] <$> goIf arms
    pure (declStmt ++ armStmts)
    where
       scrutExpr = valueToExpr scrut
@@ -110,21 +111,42 @@ codegenMatch ty scrut arms mDefault dest = do
          DestBinding _   -> []
          DestLocal lid -> [CDeclStmt (typeToCType ty) (localName lid) Nothing]
 
-      go :: [(Literal, [KirInstruct], KirValue)] -> CCodegen (Maybe [CStmt])
-      go [] = traverse codegenDefault mDefault
-      go ((lit, instrs, val) : rest) = do
-         armStmts <- codegenInstructs instrs
-         elseStmt <- go rest
+      switchableTag (TagLit (LitInt _))  = True
+      switchableTag (TagLit (LitChar _)) = True
+      switchableTag (TagCtor _)          = True
+      switchableTag _                    = False
+
+      canSwitch =
+         not (null arms)
+         && all (switchableTag . (.tag)) arms
+         && (isJust fallback || exhaustive)
+
+      codegenSwitch = do
+         cases <- forM arms $ \(KirMatchArm { tag = tag, branch = branch }) -> do
+            caseStmts <- codegenInstructs branch.instructs
+            pure (tagToExpr tag, caseStmts ++ [assignDest branch.value])
+         defaultBranch <- case fallback of
+            Just branch -> do
+               defStmts <- codegenInstructs branch.instructs
+               pure (CDefaultStmts (defStmts ++ [assignDest branch.value]))
+            Nothing -> pure CDefaultUnreachable
+         pure [CSwitch scrutExpr cases defaultBranch]
+
+      goIf :: [KirMatchArm] -> CCodegen (Maybe [CStmt])
+      goIf [] = traverse codegenBranch fallback
+      goIf (KirMatchArm { tag = tag, branch = branch } : rest) = do
+         armStmts <- codegenInstructs branch.instructs
+         elseStmt <- goIf rest
          pure $ Just
             [ CIf
-               (CBinary Eq scrutExpr (literalToExpr lit))
-               (armStmts ++ [assignDest val])
+               (CBinary Eq scrutExpr (tagToExpr tag))
+               (armStmts ++ [assignDest branch.value])
                elseStmt
             ]
 
-      codegenDefault (defInstrs, defVal) = do
-         defStmts <- codegenInstructs defInstrs
-         pure (defStmts ++ [assignDest defVal])
+      codegenBranch branch = do
+         defStmts <- codegenInstructs branch.instructs
+         pure (defStmts ++ [assignDest branch.value])
 
       assignDest v = case dest of
          DestBinding bid -> CExprStmt (CAssign (CUnary Deref (CVar (bindingName bid))) (valueToExpr v))
@@ -134,10 +156,14 @@ localName :: KirLocalId -> Text
 localName (KirLocalId n) = "_l" <> T.pack (show n)
 
 valueToExpr :: KirValue -> CExpr
-valueToExpr (KirConst lit)       = literalToExpr lit
+valueToExpr (KirConst constTag)  = tagToExpr constTag
 valueToExpr (KirVar (KirName n)) = CVar n
 valueToExpr (KirBindingRef bid)  = CUnary Deref (CVar (bindingName bid))
 valueToExpr (KirLocalRef lid)    = CVar (localName lid)
+
+tagToExpr :: KirTag -> CExpr
+tagToExpr (TagLit lit) = literalToExpr lit
+tagToExpr (TagCtor ctor) = CVar ctor.inner
 
 literalToExpr :: Literal -> CExpr
 literalToExpr (LitInt n)   = CIntLit n.value
@@ -148,5 +174,6 @@ typeToCType :: Type -> CType
 typeToCType (TyCon (Ident "Int"))   = CInt
 typeToCType (TyCon (Ident "Float")) = CFloat
 typeToCType (TyCon (Ident "Long"))  = CLong
-typeToCType (TyCon (Ident "Bool"))  = CBool
+-- Temporary
+typeToCType (TyCon (Ident "Bool"))  = CStruct "Bool"
 typeToCType ty = todo__ ("no C representation for type " ++ typename ty)
