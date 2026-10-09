@@ -2,14 +2,16 @@ module Xast.Lowerer.DecisionTree where
 
 import Xast.AST (Ident)
 import Xast.Utils.Generic ((|>), unreachableWith)
-import Data.Maybe (catMaybes, isJust, mapMaybe)
+import Data.Maybe (catMaybes, isJust, mapMaybe, fromJust)
 import qualified Data.Set as S
+import Data.List (findIndex)
 
 data DecisionTree
    = DTLeaf Int
    | DTFail
    | DTSwitch [(Con, DecisionTree)] (Maybe DecisionTree)
    | DTSwap Int DecisionTree
+   deriving (Eq, Show)
 
 compilePatterns :: PatMatrix -> DecisionTree
 compilePatterns pm
@@ -21,15 +23,17 @@ compilePatterns pm
          in DTLeaf action
 
    | otherwise =
-      let cols = head (patMatrixColsWithCon pm)
-          i =  cols
+      let Row firstPats _ = head pm
+          i = fromJust (findIndex isCon firstPats)
       in if i == 0 then
          let headCons = patMatrixHeadCons pm
-             def = 
-               if null headCons then
-                  Just (compilePatterns pm)
-               else
-                  Nothing
+             -- check pattern matching constructors set for
+             -- completeness, so that default value doesn't
+             -- fall into Nothing
+             complete = length headCons == (head headCons).span
+             def 
+               | complete = Nothing
+               | otherwise = Just (compilePatterns (defaultD pm))
              caseList = headCons
                |> map (\con -> 
                      let pmSpecialized = specializeS con pm
@@ -72,10 +76,6 @@ rowHeadIs :: Con -> Row -> Bool
 rowHeadIs conA (Row (PCon conB _ : _) _) = conA == conB
 rowHeadIs _ _ = False
 
-rowHeadIsCon :: Row -> Bool
-rowHeadIsCon (Row (PCon _ _ : _) _) = True
-rowHeadIsCon _ = False
-
 rowHeadIsWildcard :: Row -> Bool
 rowHeadIsWildcard (Row (PWildCard : _) _) = True
 rowHeadIsWildcard _ = False
@@ -91,8 +91,8 @@ patMatrixSwap index = map swapRow
       swapElements :: Int -> Int -> [a] -> [a]
       swapElements i j xs
          | i == j = xs
-         | i < 0 || j < 0 = xs
-         | i >= length xs || j >= length xs = xs
+         | i < 0 || j < 0 || i >= length xs || j >= length xs = 
+            unreachableWith "row swapped indices cannot be out of bounds"
          | otherwise =
             let a = xs !! i
                 b = xs !! j
@@ -102,24 +102,6 @@ patMatrixSwap index = map swapRow
       replace _ _ [] = []
       replace 0 x (_:xs) = x : xs
       replace i x (y:ys) = y : replace (i - 1) x ys
-
-patMatrixGetSig :: Int -> PatMatrix -> [Con]
-patMatrixGetSig index pm = pm
-   |> map (\(Row pats _) -> pats !! index |> patCon)
-   |> catMaybes
-   |> S.fromList
-   |> S.toList
-
-patMatrixColsWithCon :: PatMatrix -> [Int]
-patMatrixColsWithCon pm = pm
-   |> concatMap (\(Row pats _) ->
-         pats
-            |> zip [0..]
-            |> filter (isCon . snd)
-            |> map fst
-      )
-   |> S.fromList
-   |> S.toList
 
 patMatrixHeadCons :: PatMatrix -> [Con]
 patMatrixHeadCons pm = pm
@@ -143,7 +125,7 @@ specializeRow con row@(Row pats0 index)
       in Just (Row pats2 index)
 
   | rowHeadIsWildcard row = 
-      let pats1 = replicate (length pats0) PWildCard
+      let pats1 = replicate con.arity PWildCard
           pats2 = pats1 ++ tail pats0
       in Just (Row pats2 index)
       
