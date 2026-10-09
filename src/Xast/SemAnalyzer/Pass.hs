@@ -18,12 +18,13 @@ import Xast.Error.Types
 import Xast.Utils.List (allEqual, pairs)
 import Xast.SemAnalyzer.Monad
 import Xast.SemAnalyzer.Types
-import Data.Function ((&), on)
+import Data.Function (on)
 import Xast.SemAnalyzer.Query
 import Text.Megaparsec (SourcePos(sourceName))
 import Control.Applicative ((<|>))
 import Xast.Utils.Generic (unreachableWith, (<--))
 import qualified Data.Text as T
+import Xast.Utils.Generic ((|>))
 import Xast.Utils.Compiler (Target (Target32, Target64))
 import Control.Monad.RWS (asks)
 
@@ -339,18 +340,18 @@ resolveMissing progs = do
 getModuleSymbols :: Module -> SemAnalyzer (M.Map Ident SymbolInfo)
 getModuleSymbols m = gets $ \st ->
    st
-      & (.modules)
-      & M.lookup m
-      & fromJust
-      & (.symbols)
+      |> (.modules)
+      |> M.lookup m
+      |> fromJust
+      |> (.symbols)
 
 getModuleExports :: Module -> SemAnalyzer (S.Set Ident)
 getModuleExports m = gets $ \st ->
    st
-      & (.modules)
-      & M.lookup m
-      & fromJust
-      & (.exports)
+      |> (.modules)
+      |> M.lookup m
+      |> fromJust
+      |> (.exports)
 
 setModuleExports :: Module -> S.Set Ident -> SemAnalyzer ()
 setModuleExports m exps =

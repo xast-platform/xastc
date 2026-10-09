@@ -2,7 +2,6 @@
 {-# LANGUAGE RecordWildCards #-}
 module Xast.Parser.Type where
 
-import Data.Function ((&))
 import Text.Megaparsec (choice, sepBy, between, some, MonadParsec (try), many, sepBy1, sepEndBy)
 
 import Xast.Parser.Ident
@@ -10,6 +9,7 @@ import Xast.Parser.Common (Parser, symbol, lexeme, endOfStmt, withLoc, located)
 import Xast.AST
 import Data.List (foldl1')
 import Xast.Parser.Modifier (typeModifier, noRepeatedModifiers)
+import Xast.Utils.Generic ((|>))
 
 typeDef :: Parser TypeDef
 typeDef = withLoc $ do
@@ -33,7 +33,7 @@ payload' :: Parser Payload
 payload' = choice
    [ PRecord   <$> between (symbol "{") (symbol "}") (field `sepEndBy` symbol ",")
    , PTuple    <$> try (some (located (lexeme atomType)))
-   , PUnit     & pure
+   , PUnit     |> pure
    ]
 
 field :: Parser Field

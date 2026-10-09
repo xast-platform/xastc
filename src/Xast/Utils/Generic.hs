@@ -7,6 +7,11 @@ f <-- a = fmap (\fm -> fm a) f
 
 infixl 3 <--
 
+(|>) :: a -> (a -> b) -> b
+x |> f = f x
+
+infixl 1 |>
+
 unreachableWith :: String -> a
 unreachableWith msg = error ("Entered unreachable state with: " ++ msg)
 
